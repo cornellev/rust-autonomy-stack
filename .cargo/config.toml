@@ -1,0 +1,8 @@
+[alias]
+# `cargo deploy merceves`, `cargo launch sim`, `cargo cev check`.
+# All three are the same binary: crates/cev-cli (built debug -- it only shells
+# out to cargo/rsync/ssh, so there is nothing to optimise).
+cev = "run --quiet --package cev-cli --"
+launch = "run --quiet --package cev-cli -- launch"
+deploy = "run --quiet --package cev-cli -- deploy"
+cars = "run --quiet --package cev-cli -- cars"

@@ -1,0 +1,17 @@
+[package]
+name = "cev-cli"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Orchestration for the CEV autonomy stack: launch and deploy a car."
+
+[[bin]]
+name = "cev"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+cev-config.workspace = true
+ctrlc.workspace = true

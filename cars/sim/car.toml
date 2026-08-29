@@ -1,0 +1,12 @@
+# Desktop "car": the same stack, run against the simulator instead of hardware.
+# No [deploy] section -- there is nowhere to deploy to.
+
+name = "sim"
+description = "Desktop stack, no vehicle"
+
+[env]
+RUST_LOG = "debug"
+
+[[nodes]]
+name = "estimation"
+package = "rust-inekf"

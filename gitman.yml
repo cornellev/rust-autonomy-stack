@@ -1,0 +1,89 @@
+# Dependency manifest for the autonomy stack.
+#
+#   uvx gitman install     clone/checkout every source at its LOCKED revision
+#   uvx gitman update      move every source to the tip of `rev` and re-lock
+#   uvx gitman list        show what is currently checked out
+#
+# `sources` is what we track; `sources_locked` (written by `gitman lock`, at the
+# bottom of this file) is the exact set of commits that make up a stack release.
+# Commit both.
+#
+# Clones land in repos/ -- those are ordinary git repos, cd into them and work
+# normally. `links` then expose the Rust packages under nodes/, which is what the
+# Cargo workspace in ./Cargo.toml globs over. Only link a directory that is a
+# Cargo package; anything else breaks the workspace glob. That is why
+# costmap-planner-rust has no `links`: it is a ROS 2 / colcon package and cannot
+# build inside a plain Cargo workspace.
+#
+# DO NOT comment anything below this header. `gitman lock` and `gitman update`
+# rewrite this file and keep only the comments above the first source; anything
+# further down is silently deleted. Per-source notes go in README.md.
+
+location: repos
+
+sources:
+  # -- state estimation -----------------------------------------------------
+  - repo: https://github.com/cornellev/rust-inekf
+    name: rust-inekf
+    rev: main
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/estimation
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/costmap-planner-rust
+    name: costmap-planner-rust
+    rev: main
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      -
+    scripts:
+      -
+    patches:
+      -
+groups:
+  # `uvx gitman install cargo` pulls only what the workspace build needs.
+  - name: cargo
+    members:
+      - rust-inekf
+  - name: ros
+    members:
+      - costmap-planner-rust
+sources_locked:
+  - repo: https://github.com/cornellev/rust-inekf
+    name: rust-inekf
+    rev: e8378a4e4d1d6e92f09ecd82b30475b5e7873478
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/estimation
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/costmap-planner-rust
+    name: costmap-planner-rust
+    rev: e9f6a72ca8dcab8572c16e4d5f8cb8cc5ad074a1
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      -
+    scripts:
+      -
+    patches:
+      -
+default_group: ''

@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "nodes/*"]
+exclude = ["repos"]
+
+[workspace.package]
+edition = "2024"
+authors = ["Cornell Electric Vehicles"]
+license = "MIT"
+
+[workspace.dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+ctrlc = { version = "3", features = ["termination"] }
+cev-config = { path = "crates/cev-config" }

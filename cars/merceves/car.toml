@@ -1,0 +1,34 @@
+# MerCEVes -- medium-size autonomous testbed.
+#
+# This file is deployment truth: which nodes run, how they start, where they go.
+# Vehicle geometry, CAN IDs and sensor extrinsics are hardware truth; they have
+# no home yet (see README) and are deliberately not duplicated here. Files next
+# to this one are rsynced to <install_dir>/config on the car, and every node is
+# started with CEV_CAR_DIR pointing at that directory.
+
+name = "merceves"
+description = "MerCEVes autonomous testbed (Jetson)"
+
+[env]
+RUST_LOG = "info"
+
+[deploy]
+host = "merceves.local"
+user = "cev"
+target = "aarch64-unknown-linux-gnu"
+builder = "cross"                 # "cross" (docker) or "cargo" (host linker)
+install_dir = "/opt/cev"
+# restart_cmd = "systemctl --user restart cev.target"
+
+[[nodes]]
+name = "estimation"
+package = "rust-inekf"
+
+# ROS 2 / colcon, so it is not a workspace package: cev starts it as a plain
+# command and does not deploy it. Enable once the car has a sourced ROS install.
+[[nodes]]
+name = "planning"
+command = ["ros2", "run", "costmap_planner_rs", "a_star"]
+enabled = false
+
+# Add control, perception and logging here as their repos land in gitman.yml.
