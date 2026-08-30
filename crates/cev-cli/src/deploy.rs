@@ -65,11 +65,12 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool) -> Result<()> 
 
     let bin_dir = format!("{}/bin", deploy.install_dir);
     let config_dir = format!("{}/config", deploy.install_dir);
+    let sensors_dir = format!("{}/sensors", deploy.install_dir);
 
     let mut mkdir = Command::new("ssh");
     mkdir
         .arg(&remote)
-        .arg(format!("mkdir -p {bin_dir} {config_dir}"));
+        .arg(format!("mkdir -p {bin_dir} {config_dir} {sensors_dir}"));
     run(mkdir, dry_run)?;
 
     if !binaries.is_empty() {
@@ -89,6 +90,21 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool) -> Result<()> 
         .arg(format!("{}/", car.dir.display()))
         .arg(format!("{remote}:{config_dir}/"));
     run(rsync, dry_run)?;
+
+    // The sensor catalog is group-level, so it cannot ride along inside
+    // cars/<name>/ -- and it cannot be merged into config/ either, because the
+    // rsync above runs with --delete and would remove it again. Its own
+    // destination, matching CEV_SENSORS_DIR.
+    let catalog = root.join("sensors");
+    if catalog.is_dir() {
+        let mut rsync = Command::new("rsync");
+        rsync
+            .arg("-az")
+            .arg("--delete")
+            .arg(format!("{}/", catalog.display()))
+            .arg(format!("{remote}:{sensors_dir}/"));
+        run(rsync, dry_run)?;
+    }
 
     if let Some(restart) = &deploy.restart_cmd {
         let mut ssh = Command::new("ssh");

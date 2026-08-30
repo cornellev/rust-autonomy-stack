@@ -14,9 +14,12 @@ composite Gradle build.
 rust-autonomy-stack/
 ├── gitman.yml         which node repos, at which commits   (sources + sources_locked)
 ├── Cargo.toml         the workspace that builds all of them
-├── cars/              one directory per vehicle -- the deployment manifests
-│   ├── merceves/car.toml
-│   └── sim/car.toml
+├── cars/              one directory per vehicle
+│   ├── merceves/
+│   │   ├── car.toml      what it runs and where        (deployment truth)
+│   │   └── sensors.toml  what it carries and where     (hardware truth)
+│   └── sim/
+├── sensors/           car-agnostic catalog: one file per sensor model we own
 ├── crates/            first-party code that belongs to the group itself
 │   ├── cev-cli/       the `cev` binary: cars, check, launch, deploy
 │   └── cev-config/    the car.toml schema
@@ -66,12 +69,55 @@ it, or it carries secrets -- add a gitman source with
 `links: - target: cars/<name>` and nothing else changes; there is a commented
 stanza in `gitman.yml` showing exactly that.
 
-Open question: per-car *hardware* constants -- wheelbase, track, wheel radius,
-sensor extrinsics, CAN IDs -- are not deployment truth and are deliberately
-absent from `car.toml`. They are needed by estimation, control and perception
-alike, so they want one home rather than three copies. Nothing owns them yet;
-the candidates are a `hardware.toml` beside `car.toml` with a schema in
-`cev-config`, or a repository of their own pulled in by gitman.
+## Sensors: a catalog, and what each car registers from it
+
+Hardware truth is split across two files, along the line that actually matters:
+whether a fact belongs to the *part* or to the *vehicle*.
+
+`sensors/<id>.toml` is the **catalog** -- one file per sensor model the team owns,
+independent of any car. An entry is common metadata (vendor, native rate) plus
+exactly one kind-specific parameter block. Those blocks do not share a shape,
+because the hardware does not: a camera carries resolution, intrinsics, distortion
+and a shutter model; an IMU carries measurement ranges and bias random walks.
+Putting a camera's `fx` in an IMU file is a parse error, not a silently ignored key.
+
+The catalog exists for **sim-real fidelity**. Its noise parameters -- measured by
+Allan variance or FFT analysis of bench data -- are read twice: the simulator
+corrupts ground truth with them, and the estimator builds its measurement
+covariance `R` from them. They are one number so those two cannot drift apart. A
+`[calibration]` block records where each number came from, and `method =
+"datasheet"` marks one that was *not* measured on our hardware; `cev check` says
+so out loud, because a vendor sigma quietly becoming an `R` matrix is the classic
+way a simulator stops predicting the real vehicle.
+
+`cars/<name>/sensors.toml` is the **registration**: which catalog models this car
+carries, under what instance names, at what rate, and where they are mounted.
+Extrinsics live here rather than in the catalog because a pose is a property of
+the mounting, not of the part number. The convention is stated once, in the
+`sensor` module docs: `v_parent = R * v_sensor + xyz`, metres, with `rpy` as
+intrinsic Z-Y-X in radians, or a `[w, x, y, z]` quaternion instead for poses that
+came out of a calibration tool.
+
+```
+cargo cev sensors            # the catalog
+cargo cev sensors merceves   # what one car carries, resolved, with zenoh keys
+```
+
+Zenoh key expressions are derived as `cev/<car>/<sensor>`, so uniqueness within a
+car is enough to guarantee it globally. Nothing publishes on them yet -- the
+transport is the next piece of work, zenoh with its shared-memory backend so that
+local subscribers are zero-copy and remote ones fall back to TCP through the same
+API.
+
+The catalog is group-level, so `cev deploy` rsyncs it to `<install_dir>/sensors`
+in its own step -- it cannot ride inside `cars/<name>/`, and it cannot be merged
+into `config/`, which is synced with `--delete`. Nodes find both directories
+through `CEV_CAR_DIR` and `CEV_SENSORS_DIR`.
+
+Still open: vehicle geometry proper -- wheelbase, track, wheel radius, CAN IDs.
+It is not deployment truth and not sensor truth, and it still has no home. The
+candidates are unchanged: a `hardware.toml` beside `car.toml` with its schema in
+`cev-config`, or a repository of its own pulled in by gitman.
 
 ## What gitman pulls
 

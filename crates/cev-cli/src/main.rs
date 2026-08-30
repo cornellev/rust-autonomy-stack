@@ -9,7 +9,7 @@ mod group;
 mod launch;
 
 use anyhow::Result;
-use cev_config::Car;
+use cev_config::{Car, Catalog};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -26,6 +26,11 @@ enum Command {
     /// Validate car manifests and the state of the workspace.
     Check {
         /// Only check this car.
+        car: Option<String>,
+    },
+    /// Show the sensor catalog, or what one car carries.
+    Sensors {
+        /// Car to show. Omit to list the catalog itself.
         car: Option<String>,
     },
     /// Build and run a car's nodes on this machine.
@@ -70,6 +75,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Command::Check { car } => check(&root, &cars_dir, car.as_deref()),
+        Command::Sensors { car } => sensors(&root, &cars_dir, car.as_deref()),
         Command::Launch { car, no_build } => {
             let car = Car::load(&cars_dir, &car)?;
             launch::launch(&root, &car, !no_build)
@@ -107,9 +113,19 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
         Some(name) => vec![name.to_string()],
         None => Car::list(cars_dir)?,
     };
+    // Loading the catalog validates every model file: id-vs-stem, and each
+    // hardware kind's own physical bounds.
+    let catalog = Catalog::load(&root.join("sensors"))?;
+    println!("catalog: {} sensor model(s)", catalog.len());
+    let mut unmeasured = 0;
+
     for name in cars {
         let car = Car::load(cars_dir, &name)?;
-        println!("car {name}: {} node(s)", car.nodes.len());
+        println!(
+            "car {name}: {} node(s), {} sensor(s)",
+            car.nodes.len(),
+            car.sensors.len()
+        );
         for package in car.cargo_packages() {
             if !names.contains(&package) {
                 println!(
@@ -119,6 +135,34 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
                 problems += 1;
             }
         }
+        // resolve_sensors is what catches an unknown model id and a rate override
+        // above the model's native rate.
+        match car.resolve_sensors(&catalog) {
+            Ok(sensors) => {
+                for sensor in sensors {
+                    if let Err(error) = sensor.extrinsics() {
+                        println!("  bad pose: {error}");
+                        problems += 1;
+                    }
+                    if sensor.model.is_datasheet() {
+                        unmeasured += 1;
+                    }
+                }
+            }
+            Err(error) => {
+                println!("  {error}");
+                problems += 1;
+            }
+        }
+    }
+
+    // Not a failure -- a datasheet sigma is a real number, just not one measured
+    // on our hardware. It is worth saying out loud before it becomes an R matrix.
+    if unmeasured > 0 {
+        println!(
+            "note: {unmeasured} registered sensor(s) use unmeasured (datasheet) noise; \
+             run an Allan/FFT fit before trusting them in a filter"
+        );
     }
 
     if problems == 0 {
@@ -127,4 +171,70 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     } else {
         anyhow::bail!("{problems} problem(s)")
     }
+}
+
+/// `cev sensors [car]` -- the catalog, or one car's registrations resolved against it.
+fn sensors(root: &std::path::Path, cars_dir: &std::path::Path, car: Option<&str>) -> Result<()> {
+    let catalog = Catalog::load(&root.join("sensors"))?;
+
+    let Some(name) = car else {
+        if catalog.is_empty() {
+            println!("no sensor models in {}", root.join("sensors").display());
+            return Ok(());
+        }
+        for model in catalog.models() {
+            let measured = if model.is_datasheet() { "!" } else { " " };
+            println!(
+                "{measured} {:<12} {:<14} {:>8.1} Hz  {}",
+                model.id,
+                model.kind_name(),
+                model.rate_hz,
+                model.description
+            );
+        }
+        println!("\n! = noise is unmeasured (datasheet or absent)");
+        return Ok(());
+    };
+
+    let car = Car::load(cars_dir, name)?;
+    let sensors = car.resolve_sensors(&catalog)?;
+    if sensors.is_empty() {
+        println!("{name} registers no sensors");
+        return Ok(());
+    }
+
+    println!(
+        "   {:<16} {:<12} {:<10} {:>9}  key",
+        "sensor", "model", "kind", "rate"
+    );
+    for sensor in &sensors {
+        let enabled = if sensor.reg.enabled { " " } else { "-" };
+        let measured = if sensor.model.is_datasheet() {
+            "!"
+        } else {
+            " "
+        };
+        println!(
+            "{enabled}{measured} {:<16} {:<12} {:<10} {:>6.1} Hz  {}",
+            sensor.reg.name,
+            sensor.model.id,
+            sensor.model.kind_name(),
+            sensor.rate_hz(),
+            sensor.key_expr(&car.name),
+        );
+        let extrinsics = sensor.extrinsics()?;
+        let [roll, pitch, yaw] = extrinsics.rpy();
+        println!(
+            "     {} <- xyz [{:.3}, {:.3}, {:.3}] m  rpy [{:.3}, {:.3}, {:.3}] rad",
+            extrinsics.parent,
+            extrinsics.xyz[0],
+            extrinsics.xyz[1],
+            extrinsics.xyz[2],
+            roll,
+            pitch,
+            yaw
+        );
+    }
+    println!("\n- = disabled, ! = noise is unmeasured (datasheet or absent)");
+    Ok(())
 }

@@ -1,0 +1,28 @@
+# CUI AMT102-V incremental encoder on a drive wheel. Slip dominates quantization
+# on any real surface, which is why slip_sigma is the number that matters.
+
+id = "amt102"
+vendor = "CUI Devices"
+part_number = "AMT102-V"
+description = "Capacitive incremental encoder, 2048 PPR"
+rate_hz = 100.0
+
+[model]
+kind = "wheel_encoder"
+
+[model.params]
+ticks_per_rev  = 2048
+wheel_radius_m = 0.2286   # 18 in diameter
+quadrature     = true
+
+[model.params.noise]
+slip_sigma  = 0.02   # fraction of distance travelled
+tick_jitter = 0.5    # ticks
+
+[model.shm]
+frame_bytes = 64
+slots = 32
+
+[calibration]
+method = "datasheet"
+notes = "slip_sigma is a placeholder; fit it from a straight-line run against RTK."

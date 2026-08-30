@@ -4,9 +4,19 @@ version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Per-car deployment manifests for the CEV autonomy stack."
+
+[features]
+default = []
+# Convert a resolved `Extrinsics` into an `Isometry3<f64>`. Off by default so the
+# schema crate, which every node links, does not pin a linear-algebra version.
+nalgebra = ["dep:nalgebra"]
 
 [dependencies]
 serde.workspace = true
 toml.workspace = true
 thiserror.workspace = true
+nalgebra = { workspace = true, optional = true }
+
+[dev-dependencies]
+approx.workspace = true
+proptest.workspace = true

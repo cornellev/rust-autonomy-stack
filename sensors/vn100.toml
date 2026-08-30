@@ -1,0 +1,31 @@
+# VectorNav VN-100. Numbers below are datasheet values and are marked as such --
+# replace them with an Allan variance run before anyone trusts them in a filter.
+
+id = "vn100"
+vendor = "VectorNav"
+part_number = "VN-100T-CR"
+description = "MEMS AHRS, 400 Hz IMU output"
+rate_hz = 400.0
+
+[model]
+kind = "imu"
+
+[model.params]
+gyro_range  = 34.9    # rad/s   (+/- 2000 deg/s)
+accel_range = 156.9   # m/s^2   (+/- 16 g)
+
+[model.params.noise]
+gyro_noise_density     = 6.1e-5   # rad/s/sqrt(Hz)     (0.0035 deg/s/sqrt(Hz))
+gyro_bias_random_walk  = 1.0e-6   # rad/s^2/sqrt(Hz)
+gyro_bias_instability  = 1.7e-6   # rad/s              (10 deg/hr)
+accel_noise_density    = 1.4e-3   # m/s^2/sqrt(Hz)     (0.14 mg/sqrt(Hz))
+accel_bias_random_walk = 4.0e-5   # m/s^3/sqrt(Hz)
+accel_bias_instability = 3.9e-4   # m/s^2              (40 ug)
+
+[model.shm]
+frame_bytes = 128
+slots = 64
+
+[calibration]
+method = "datasheet"
+notes = "Vendor sheet. Needs an 8h static soak and an Allan fit."

@@ -1,0 +1,41 @@
+# Luxonis OAK-D Pro, centre colour camera. Intrinsics are per-unit in reality; the
+# values here are a nominal factory calibration and should be re-estimated per
+# camera before use in VIO.
+
+id = "oak-d-pro"
+vendor = "Luxonis"
+part_number = "OAK-D-Pro"
+description = "Global-shutter stereo depth camera, centre RGB stream"
+rate_hz = 60.0
+
+[model]
+kind = "camera"
+
+[model.params]
+resolution = [1920, 1080]
+model      = "pinhole"
+
+[model.params.intrinsics]
+fx = 1492.3
+fy = 1491.8
+cx = 954.1
+cy = 545.6
+
+[model.params.distortion]
+model  = "radtan"
+coeffs = [-0.0421, 0.0917, 0.00012, -0.00007, -0.0338]
+
+[model.params.shutter]
+kind = "global"
+
+[model.params.noise]
+pixel_sigma        = 0.4     # px reprojection sigma
+timestamp_jitter_s = 1.5e-4
+
+[model.shm]
+frame_bytes = 3110400        # 1920 * 1080 * 1.5, NV12
+slots = 8
+
+[calibration]
+method = "datasheet"
+notes = "Nominal factory intrinsics. Re-run a target calibration per unit."

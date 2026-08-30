@@ -17,4 +17,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 ctrlc = { version = "3", features = ["termination"] }
+nalgebra = "0.35"
+approx = "0.5"
+proptest = "1"
 cev-config = { path = "crates/cev-config" }

@@ -2,13 +2,23 @@
 //!
 //! One `cars/<name>/car.toml` describes a single vehicle: which nodes it runs,
 //! how they are launched, and where the binaries go when deployed. The manifest
-//! is *deployment* truth only: vehicle geometry, CAN IDs and sensor extrinsics
-//! are hardware truth and have no home in this schema yet.
+//! is *deployment* truth only.
+//!
+//! Hardware truth lives next to it, in two files with different scopes. The
+//! car-agnostic catalog under `sensors/` describes each sensor model the team
+//! owns -- its physical parameters and its measured noise -- and
+//! `cars/<name>/sensors.toml` says which of those this vehicle carries and where
+//! they are mounted. See the [`sensor`] module. Vehicle geometry proper
+//! (wheelbase, track, CAN IDs) still has no home here.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+pub mod sensor;
+
+pub use sensor::{Catalog, Registration, Sensor, SensorModel, SensorSet};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -28,6 +38,12 @@ pub enum ConfigError {
     },
     #[error("{path}: {message}")]
     Invalid { path: PathBuf, message: String },
+    #[error("{path}: sensor `{sensor}` references unknown model `{model}`")]
+    UnknownModel {
+        path: PathBuf,
+        sensor: String,
+        model: String,
+    },
 }
 
 /// A single vehicle's deployment manifest.
@@ -45,6 +61,10 @@ pub struct Car {
     pub deploy: Option<Deploy>,
     #[serde(default, rename = "nodes")]
     pub nodes: Vec<Node>,
+    /// Read from the sibling `sensors.toml` by [`Car::load`], not from `car.toml`.
+    /// Empty when that file is absent.
+    #[serde(skip)]
+    pub sensors: Vec<Registration>,
     /// Filled in by [`Car::load`]; not read from the file.
     #[serde(skip)]
     pub dir: PathBuf,
@@ -104,7 +124,7 @@ pub struct Node {
     pub enabled: bool,
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 fn default_user() -> String {
@@ -153,6 +173,7 @@ impl Car {
         })?;
         car.dir = dir;
         car.validate(&path)?;
+        car.sensors = SensorSet::load(&car.dir)?.sensors;
         Ok(car)
     }
 
@@ -190,6 +211,50 @@ impl Car {
         packages.sort_unstable();
         packages.dedup();
         packages
+    }
+
+    /// Join every registration to its catalog model.
+    ///
+    /// Deliberately not done by [`Car::load`]: the catalog lives at the group root,
+    /// which the config crate has no business locating, and keeping the join
+    /// explicit means an unknown model id can be reported against the file that
+    /// actually names it.
+    pub fn resolve_sensors<'a>(
+        &'a self,
+        catalog: &'a Catalog,
+    ) -> Result<Vec<Sensor<'a>>, ConfigError> {
+        let path = self.dir.join("sensors.toml");
+        let mut resolved = Vec::with_capacity(self.sensors.len());
+        for reg in &self.sensors {
+            let model = catalog
+                .get(&reg.model)
+                .ok_or_else(|| sensor::unknown_model(path.clone(), &reg.name, &reg.model))?;
+            if let Some(rate) = reg.rate_hz
+                && rate > model.rate_hz
+            {
+                return Err(ConfigError::Invalid {
+                    path: path.clone(),
+                    message: format!(
+                        "sensor `{}`: rate_hz {rate} exceeds model `{}` native rate {}",
+                        reg.name, model.id, model.rate_hz
+                    ),
+                });
+            }
+            resolved.push(Sensor { reg, model });
+        }
+        Ok(resolved)
+    }
+
+    /// Resolved sensors that are enabled, in manifest order.
+    pub fn enabled_sensors<'a>(
+        &'a self,
+        catalog: &'a Catalog,
+    ) -> Result<Vec<Sensor<'a>>, ConfigError> {
+        Ok(self
+            .resolve_sensors(catalog)?
+            .into_iter()
+            .filter(|sensor| sensor.reg.enabled)
+            .collect())
     }
 
     fn validate(&self, path: &Path) -> Result<(), ConfigError> {

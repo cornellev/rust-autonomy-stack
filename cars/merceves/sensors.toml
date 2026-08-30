@@ -1,0 +1,48 @@
+# What MerCEVes carries, and where it is mounted.
+#
+# `model` names an entry in the group-level `sensors/` catalog, which holds the
+# physical parameters and noise for that part number. This file adds only what is
+# specific to this vehicle: the instance name, the mounting pose, and any rate
+# the car runs slower than the sensor's native output.
+#
+# Poses are sensor-to-parent: v_parent = R * v_sensor + xyz, with xyz in metres
+# and rpy in radians as intrinsic Z-Y-X (yaw, pitch, roll). See the `sensor`
+# module docs in cev-config.
+#
+# TODO: every pose below is a nominal design value, not a measured one.
+
+[[sensors]]
+name    = "imu_main"
+model   = "vn100"
+rate_hz = 200.0
+parent  = "base_link"
+xyz     = [0.0, 0.0, 0.08]
+rpy     = [0.0, 0.0, 0.0]
+
+[[sensors]]
+name   = "gnss_roof"
+model  = "zed-f9p"
+parent = "base_link"
+xyz    = [-0.25, 0.0, 1.12]
+rpy    = [0.0, 0.0, 0.0]
+
+[[sensors]]
+name   = "cam_front"
+model  = "oak-d-pro"
+parent = "base_link"
+xyz    = [1.34, 0.0, 0.62]
+rpy    = [0.0, 0.087, 0.0]     # 5 deg down-pitch
+
+[[sensors]]
+name   = "enc_rear_left"
+model  = "amt102"
+parent = "base_link"
+xyz    = [0.0, 0.61, 0.2286]
+rpy    = [0.0, 0.0, 0.0]
+
+[[sensors]]
+name   = "enc_rear_right"
+model  = "amt102"
+parent = "base_link"
+xyz    = [0.0, -0.61, 0.2286]
+rpy    = [0.0, 0.0, 0.0]

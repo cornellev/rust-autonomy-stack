@@ -1,0 +1,18 @@
+# The sim car registers the same models as the real one so that the simulator
+# corrupts ground truth with the same noise the estimator assumes. Extrinsics
+# match MerCEVes; diverging them is a deliberate act, not an accident.
+
+[[sensors]]
+name    = "imu_main"
+model   = "vn100"
+rate_hz = 200.0
+parent  = "base_link"
+xyz     = [0.0, 0.0, 0.08]
+rpy     = [0.0, 0.0, 0.0]
+
+[[sensors]]
+name   = "gnss_roof"
+model  = "zed-f9p"
+parent = "base_link"
+xyz    = [-0.25, 0.0, 1.12]
+rpy    = [0.0, 0.0, 0.0]

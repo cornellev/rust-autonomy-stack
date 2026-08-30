@@ -146,6 +146,9 @@ fn node_command(root: &Path, car: &Car, node: &Node) -> Result<Command> {
     command.current_dir(root);
     command.env("CEV_CAR", &car.name);
     command.env("CEV_CAR_DIR", &car.dir);
+    // The sensor catalog is group-level, not per-car, so it needs its own pointer.
+    // Set before the env maps below, so a car or node can still override it.
+    command.env("CEV_SENSORS_DIR", root.join("sensors"));
     for (key, value) in &car.env {
         command.env(key, value);
     }

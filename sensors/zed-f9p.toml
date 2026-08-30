@@ -1,0 +1,36 @@
+# u-blox ZED-F9P. Position sigma depends entirely on fix quality -- two orders of
+# magnitude between a single-point solution and an RTK fix -- so a scalar sigma
+# here would misstate the covariance almost all of the time.
+
+id = "zed-f9p"
+vendor = "u-blox"
+part_number = "ZED-F9P"
+description = "Multi-band RTK GNSS receiver"
+rate_hz = 10.0
+
+[model]
+kind = "gnss"
+
+[model.params]
+constellations   = ["gps", "glonass", "galileo", "beidou"]
+antenna_offset_m = [0.0, 0.0, 0.0]
+rtk              = true
+
+[model.params.noise]
+horizontal_sigma_m = 1.5
+vertical_sigma_m   = 2.5
+velocity_sigma_mps = 0.05
+
+[model.params.noise.by_fix]
+single = { horizontal_sigma_m = 1.5,  vertical_sigma_m = 2.5,  velocity_sigma_mps = 0.05 }
+dgps   = { horizontal_sigma_m = 0.6,  vertical_sigma_m = 1.0,  velocity_sigma_mps = 0.04 }
+float  = { horizontal_sigma_m = 0.3,  vertical_sigma_m = 0.5,  velocity_sigma_mps = 0.03 }
+fixed  = { horizontal_sigma_m = 0.014, vertical_sigma_m = 0.02, velocity_sigma_mps = 0.02 }
+
+[model.shm]
+frame_bytes = 256
+slots = 16
+
+[calibration]
+method = "datasheet"
+notes = "Vendor CEP figures converted to 1-sigma."

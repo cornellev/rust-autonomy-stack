@@ -30,6 +30,10 @@
 !cars
 !cars/**
 
+# Car-agnostic sensor catalog: one file per sensor model the team owns.
+!sensors
+!sensors/**
+
 !.github
 !.github/workflows
 !.github/workflows/*
