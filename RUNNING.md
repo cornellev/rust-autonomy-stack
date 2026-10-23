@@ -100,6 +100,23 @@ bump, and it is what tells you what a given car was running.
 - **The `.gitignore` is a whitelist.** Everything is ignored unless explicitly
   unignored, which is what keeps the nested clones from polluting group-level git
   operations. If you add a new top-level file and git ignores it, add a `!` line.
+- **Some nodes need SDKs your laptop may not have.** `zed-reader` panics in
+  `build.rs` without the ZED SDK (`/usr/local/zed`, or set `ZED_SDK_DIR`), and
+  `virtual-rgbd-sensor`'s auto-discovered `src/bin/wrapper.rs` uses `rclrs`
+  without declaring it, so it fails outside a ROS 2 setup. To build everything else:
+  ```bash
+  cargo build --workspace --exclude zed-reader --exclude virtual-rgbd-sensor
+  cargo build -p virtual-rgbd-sensor --bin rslidar_viz --bin zenoh_viz  # its working bins
+  ```
+  `--exclude` only works together with `--workspace`. `cargo launch`/`deploy`
+  build only the packages a car enables, so this matters only for bare `cargo build`.
+- **Some nodes only build on the car / in a ROS 2 env.** `zed-reader`'s
+  `build.rs` panics without the ZED SDK + CUDA (`ZED_SDK_DIR`, default
+  `/usr/local/zed`), and `virtual-rgbd-sensor` (`nodes/perception`) needs
+  `rclrs` and the ROS message crates from a sourced ROS 2 workspace. On a dev
+  machine without them, exclude them:
+  `cargo build --workspace --exclude zed-reader --exclude virtual-rgbd-sensor`.
+  `--exclude` takes the *package* name, not the `nodes/` directory name.
 - **`cargo deploy` needs `cross`** unless the car sets `builder = "cargo"`:
   `cargo install cross` (it needs Docker or Podman). With `builder = "cargo"` you
   supply the cross linker yourself via `rustup target add <triple>` and a

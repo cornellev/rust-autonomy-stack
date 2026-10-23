@@ -5,6 +5,8 @@
 //! is *deployment* truth only: vehicle geometry, CAN IDs and sensor extrinsics
 //! are hardware truth and have no home in this schema yet.
 
+pub mod contract;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
