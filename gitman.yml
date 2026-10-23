@@ -37,15 +37,30 @@ sources:
       -
     patches:
       -
-  - repo: https://github.com/cornellev/costmap-planner-rust
-    name: costmap-planner-rust
+  - repo: https://github.com/cornellev/virtual-rgbd-sensor
+    name: virtual-rgbd-sensor
     rev: main
     type: git
     params:
     sparse_paths:
       -
     links:
+      - source: ''
+        target: nodes/perception
+    scripts:
       -
+    patches:
+      -
+  - repo: https://github.com/cornellev/rust-autonomy-sensors
+    name: rust-autonomy-sensors
+    rev: main
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: crates/zed-reader
+        target: nodes/zed-reader
     scripts:
       -
     patches:
@@ -55,35 +70,6 @@ groups:
   - name: cargo
     members:
       - rust-inekf
-  - name: ros
-    members:
-      - costmap-planner-rust
-sources_locked:
-  - repo: https://github.com/cornellev/rust-inekf
-    name: rust-inekf
-    rev: e8378a4e4d1d6e92f09ecd82b30475b5e7873478
-    type: git
-    params:
-    sparse_paths:
-      -
-    links:
-      - source: ''
-        target: nodes/estimation
-    scripts:
-      -
-    patches:
-      -
-  - repo: https://github.com/cornellev/costmap-planner-rust
-    name: costmap-planner-rust
-    rev: e9f6a72ca8dcab8572c16e4d5f8cb8cc5ad074a1
-    type: git
-    params:
-    sparse_paths:
-      -
-    links:
-      -
-    scripts:
-      -
-    patches:
-      -
+      - rust-autonomy-sensors
+      - virtual-rgbd-sensor
 default_group: ''
