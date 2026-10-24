@@ -56,9 +56,9 @@ pub struct Run {
     pub args: Vec<String>,
 }
 
-/// Where the node computes. A GPU node must say which model it loads and
-/// which runtime executes it; the type makes a bare `device = "gpu"` a parse
-/// error rather than something to check later.
+/// Where the node computes. A GPU node must name the runtime it needs
+/// (`cuda`, `tensorrt`, `onnx`); `model` is only for nodes that load one,
+/// since some GPU nodes are plain parallel kernels with no model.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "device", rename_all = "lowercase")]
 pub enum Compute {
@@ -66,7 +66,7 @@ pub enum Compute {
     Gpu {
         model: Option<String>,
         runtime: String,
-    }, //NOTE: this should have an optional model, as this should be a check when building the package that it exists and not the other way around.
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -330,9 +330,27 @@ mod tests {
         );
         assert!(contract.inputs.is_empty());
     }
-
+    
     #[test]
-    fn gpu_without_model_is_rejected() {
+    fn gpu_wthout_model_is_accepted() {
+        let text = edit(
+            ESTIMATION,
+            r#"device = "cpu""#,
+            r#"device = "gpu"
+            runtime = "cuda""#,
+        );
+        let contract = parse_ok(&text);
+        assert_eq!(
+            contract.compute,
+            Compute::Gpu {
+                model: None,
+                runtime: "cuda".to_string()
+            }
+        );
+    }
+    
+    #[test]
+    fn gpu_without_runtime_is_rejected() {
         let text = edit(ESTIMATION,r#"device = "cpu""#, r#"device = "gpu""#);
         assert!(parse(&text).is_err());
     }
@@ -384,6 +402,20 @@ mod tests {
         assert_eq!(
             unchecked(&neither).problems(),
             vec![ContractProblem::NeitherPackageNorCommand]
+        );
+    }
+
+    #[test]
+    fn bin_needs_package() {
+        let text = edit(
+            ESTIMATION,
+            r#"package = "rust-inekf""#,
+            r#"command = ["inekf"]
+            bin = "inekf""#,
+        );
+        assert_eq!(
+            unchecked(&text).problems(),
+            vec![ContractProblem::BinWithoutPackage]
         );
     }
 
