@@ -1,10 +1,6 @@
-# Whitelist .gitignore, IHMC repository-group style.
-#
-# Everything is ignored by default so that repositories cloned into this one by
-# `gitman` (into repos/, linked into nodes/) are invisible to git operations run
-# here. Nesting git repos is normally a bad idea; the whitelist is what makes it
-# safe. Add an explicit `!` line for anything that genuinely belongs to the
-# group repo.
+# Whitelist .gitignore: everything is ignored unless explicitly listed below, so
+# stray build output and local files never get committed by accident. Add an
+# explicit `!` line for anything that genuinely belongs to this repository.
 *
 
 !.gitignore
@@ -17,13 +13,6 @@
 !.cargo
 !.cargo/*
 
-# Dependency manifest (sources + locked revisions live in this one file)
-!gitman.yml
-
-# Recursive git helpers
-!.tools
-!.tools/*
-
 # First-party, in-tree code
 !crates
 !crates/**
@@ -33,13 +22,6 @@
 !.github
 !.github/workflows
 !.github/workflows/*
-
-# The workspace globs over nodes/*, and Cargo treats the glob as a literal path
-# when the directory is missing -- so a fresh clone must have nodes/ before
-# `gitman install` fills it. Track the directory, ignore its contents.
-!nodes
-nodes/*
-!nodes/.gitkeep
 
 # ...but never build output, even under a whitelisted directory.
 target/

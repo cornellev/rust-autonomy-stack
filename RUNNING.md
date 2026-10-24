@@ -2,121 +2,97 @@
 
 ## Setup
 
-You need Rust (1.85+, edition 2024), `uv`, `git`, `rsync` and `ssh`.
+You need Rust (1.85+, edition 2024), `git`, `rsync` and `ssh`.
 
 ```bash
-gh auth setup-git            # once: several node repos are private
+gh auth setup-git            # once: lets Cargo fetch private node repos over https
 git clone https://github.com/cornellev/rust-autonomy-stack
 cd rust-autonomy-stack
-uvx gitman install           # clone every node at its locked commit
-cargo cev check              # validate the workspace and every car
-cargo build                  # build everything
+cargo cev check              # fetches every node at its locked commit, validates every car
 ```
 
-`gitman install` creates `repos/` (the clones) and `nodes/` (symlinks to the
-Cargo packages inside them). Both are untracked; the group repo only tracks the
-manifest that produces them.
+The first cargo command fetches every node repository at the commit in
+`Cargo.lock` into `~/.cargo/git`. Nothing is cloned into this directory.
 
 ## Everyday commands
 
 ```bash
 cargo cars                       # what cars exist and what nodes they run
-cargo cev check                  # dangling links, missing packages, bad manifests
-cargo launch sim                 # build + run the stack here, Ctrl-C to stop
+cargo cev check                  # every car's nodes resolve, manifests are valid
+cargo launch sim                 # build the car's nodes + run them here, Ctrl-C to stop
 cargo launch merceves --no-build # run what is already in target/release
 cargo deploy merceves --dry-run  # print every command without running it
 cargo deploy merceves            # cross-compile, rsync to the car, restart
+cargo build --release -p holdover-ekf   # build one node by hand
 ```
 
 `cargo deploy` and friends are aliases in `.cargo/config.toml` for
-`cargo run -p cev-cli -- <subcommand>`; `cev` works from anywhere inside the
-group, including from inside a node clone.
+`cargo run -p cev-cli -- <subcommand>`; `cev` works from anywhere inside this
+repository.
 
 ## Working on a node
 
-The clone in `repos/<name>` is a normal git repository. Branch, commit and push
-there as usual:
+Work in your own clone of the node, next to this one:
 
-```bash
-cd repos/rust-inekf
-git checkout -b feature/imu-bias
-# ...
-git push -u origin feature/imu-bias
+```
+rust-autonomy/
+├── .cargo/config.toml       your local patches   (not in any repo)
+├── rust-autonomy-stack/
+├── holdover-ekf/
+└── rust-autonomy-sensors/
 ```
 
-Builds pick your working tree up immediately -- `nodes/estimation` is a symlink
-to that same directory, so `cargo build` at the group root compiles what you just
-edited. Bulk git operations across every clone:
+To make the stack build your clone instead of the pinned commit, add a
+`[patch]` to `rust-autonomy/.cargo/config.toml`, in the directory *above* the
+stack. Cargo reads config files from every parent directory, so this applies
+here without touching any tracked file:
 
-```bash
-.tools/git_recursive.sh fetch --all
-.tools/git_recursive.sh status -sb
-.tools/git_recursive_reset_branch.sh          # reset everything to default branches
-.tools/git_recursive_delete_merged_branches.sh
+```toml
+[patch."https://github.com/cornellev/holdover-ekf"]
+holdover-ekf = { path = "holdover-ekf" }
+
+[patch."https://github.com/cornellev/rust-autonomy-sensors"]
+sensor-defs = { path = "rust-autonomy-sensors/crates/sensor-defs" }
+zed-reader = { path = "rust-autonomy-sensors/crates/zed-reader" }
 ```
 
-## Moving the pinned revisions
+Paths are relative to `rust-autonomy/`. Every build under that directory picks
+the patch up, including standalone builds of `holdover-ekf` (which then use
+your local `sensor-defs` too). Remove or comment out a section to go back to the
+pinned commit.
 
-`gitman.yml` holds both what we track (`sources`, usually `rev: main`) and the
-exact commits (`sources_locked`). They do different jobs:
+Branch, commit and push in the node's clone as usual. To move the stack onto
+your pushed work:
 
 ```bash
-uvx gitman install     # check out sources_locked -- the reproducible stack
-uvx gitman update      # move to the tip of each rev and rewrite sources_locked
-uvx gitman lock        # freeze whatever is currently checked out
-uvx gitman list        # what is checked out right now
+cargo update -p holdover-ekf     # move to the tip of its branch; commit Cargo.lock
 ```
 
-Commit `gitman.yml` after `update` or `lock`: that diff *is* the stack version
-bump, and it is what tells you what a given car was running.
+To track a different branch, change `branch = "..."` for that node in
+`crates/cev-nodes/Cargo.toml`.
 
 ## Gotchas
 
-- **`gitman install` leaves a detached HEAD.** It checks out a locked SHA, so
-  after running it your branch is no longer checked out in that clone. The branch
-  and its commits are untouched -- `git checkout feature/imu-bias` picks up right
-  where you left off.
-- **Uncommitted changes block gitman**, by design. It refuses with
-  `Uncommitted changes in repos/<name>` rather than discarding them. Commit, or
-  pass `--skip-changes` to leave that dependency alone. `--force` *does* discard.
-- **`gitman` rewrites `gitman.yml` and eats your comments.** `lock` and `update`
-  round-trip the file: comments above the *first* source survive, everything
-  below is deleted, and every source grows empty `params:`/`scripts:`/`patches:`
-  keys. Keep per-source notes in `README.md`.
-- **Workspace-wide commands reach into the node clones.** `cargo fmt --all` and
-  `cargo clippy --fix` will happily rewrite `repos/<node>`, since those really
-  are workspace members. Scope them: `cargo fmt -p cev-cli -p cev-config`. Each
-  node repo owns its own style.
-- **`nodes/` is tracked but empty** (a `.gitkeep`). Cargo treats `nodes/*` as a
-  literal path when the directory does not exist, so a fresh clone would fail
-  every cargo command before `gitman install` ran. Do not delete the directory.
-- **Only Cargo packages may be linked into `nodes/`.** A linked directory with no
-  `Cargo.toml` fails the `nodes/*` workspace glob and breaks the build for
-  everyone, not just the person who added it. `cargo cev check` catches the
-  dangling-link case; the non-package case is on you at review time.
-- **A node that is itself a Cargo workspace cannot be a member.** Cargo does not
-  nest workspaces. Link the individual packages inside it instead of the repo
-  root, or keep it out of the workspace and launch it as a `command` node.
-- **The `.gitignore` is a whitelist.** Everything is ignored unless explicitly
-  unignored, which is what keeps the nested clones from polluting group-level git
-  operations. If you add a new top-level file and git ignores it, add a `!` line.
-- **Some nodes need SDKs your laptop may not have.** `zed-reader` panics in
-  `build.rs` without the ZED SDK (`/usr/local/zed`, or set `ZED_SDK_DIR`), and
-  `virtual-rgbd-sensor`'s auto-discovered `src/bin/wrapper.rs` uses `rclrs`
-  without declaring it, so it fails outside a ROS 2 setup. To build everything else:
-  ```bash
-  cargo build --workspace --exclude zed-reader --exclude virtual-rgbd-sensor
-  cargo build -p virtual-rgbd-sensor --bin rslidar_viz --bin zenoh_viz  # its working bins
-  ```
-  `--exclude` only works together with `--workspace`. `cargo launch`/`deploy`
-  build only the packages a car enables, so this matters only for bare `cargo build`.
-- **Some nodes only build on the car / in a ROS 2 env.** `zed-reader`'s
-  `build.rs` panics without the ZED SDK + CUDA (`ZED_SDK_DIR`, default
-  `/usr/local/zed`), and `virtual-rgbd-sensor` (`nodes/perception`) needs
-  `rclrs` and the ROS message crates from a sourced ROS 2 workspace. On a dev
-  machine without them, exclude them:
-  `cargo build --workspace --exclude zed-reader --exclude virtual-rgbd-sensor`.
-  `--exclude` takes the *package* name, not the `nodes/` directory name.
+- **Never commit `Cargo.lock` while a local patch is active.** The patch
+  rewrites the lock entry to your local path. Comment the patch out, run
+  `cargo update -p <node>`, and commit that lock instead.
+- **A node's path dependency on another repo breaks the whole stack.** Inside a
+  git checkout, `path = "../rust-autonomy-sensors/..."` points at nothing, and
+  every cargo command here, `cargo cev` included, fails with
+  `no matching package named ...`. Node repos depend on each other by `git`.
+- **Keep the same `git` URL and `branch` for a repo everywhere.** Cargo treats
+  `branch = "extra-sensors"` and `rev = "5d892c1..."` as two different sources,
+  even when they are the same commit, and builds two copies of `sensor-defs`.
+- **Bin-only node packages are silently ignored.** Cargo drops a git dependency
+  that has no library target with only a warning, and `cargo build -p` then
+  says the package does not exist. Give the node an `src/lib.rs`.
+- **Some nodes only build on the car.** `zed-reader`'s `build.rs` needs the ZED
+  SDK and CUDA (`ZED_SDK_DIR`, default `/usr/local/zed`). Bare `cargo build`,
+  `test` and `clippy` skip all nodes (`cev-nodes` is not a default member), and
+  `cev launch`/`deploy` build only the car's nodes. Avoid `--workspace` on a
+  laptop.
+- **Workspace-wide `cargo fmt` cannot reach the nodes any more** (they are not
+  members), so `cargo fmt --all` is safe again.
 - **`cargo deploy` needs `cross`** unless the car sets `builder = "cargo"`:
   `cargo install cross` (it needs Docker or Podman). With `builder = "cargo"` you
   supply the cross linker yourself via `rustup target add <triple>` and a

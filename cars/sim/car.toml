@@ -9,4 +9,4 @@ RUST_LOG = "debug"
 
 [[nodes]]
 name = "estimation"
-package = "rust-inekf"
+package = "holdover-ekf"
