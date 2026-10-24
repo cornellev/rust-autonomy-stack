@@ -24,12 +24,5 @@ install_dir = "/opt/cev"
 name = "estimation"
 package = "holdover-ekf"
 
-# ROS 2 / colcon, so it is not a Cargo package: cev starts it as a plain
-# command and does not deploy it. Enable once the car has a sourced ROS install.
-[[nodes]]
-name = "planning"
-command = ["ros2", "run", "costmap_planner_rs", "a_star"]
-enabled = false
-
-# Add control, perception and logging here as their repos land in
+# Add planning, control, perception and logging here as their repos land in
 # crates/cev-nodes/Cargo.toml.

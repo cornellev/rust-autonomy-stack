@@ -97,8 +97,9 @@ To track a different branch, change `branch = "..."` for that node in
   `cargo install cross` (it needs Docker or Podman). With `builder = "cargo"` you
   supply the cross linker yourself via `rustup target add <triple>` and a
   `[target.<triple>]` linker entry in `.cargo/config.toml`.
-- **Deploy does not ship non-Cargo nodes.** The ROS 2 planner is built by colcon
-  in its own environment; `cev deploy` prints a note and skips it.
+- **Deploy does not ship `command` nodes.** A node a car runs as
+  `command = [...]` is built and installed by its own toolchain; `cev deploy`
+  prints a note and skips it.
 
 ## What deploy actually does
 

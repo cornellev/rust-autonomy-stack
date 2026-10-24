@@ -100,9 +100,9 @@ the candidates are a `hardware.toml` beside `car.toml` with a schema in
 | `zed-reader` | `rust-autonomy-sensors` | `extra-sensors` | ZED camera | not yet |
 
 `sensor-defs` (message types) comes from `rust-autonomy-sensors` on the same
-branch. `virtual-rgbd-sensor` is left out until it has a library target, and the
-ROS 2 / colcon `costmap-planner-rust` cannot be a Cargo dependency at all; a car
-can still run it as a `command = [...]` node.
+branch. `virtual-rgbd-sensor` is left out until it has a library target. The
+planner is not in the stack yet: the current `costmap-planner-rust` is ROS 2,
+and it comes in once it is converted to a Zenoh-native Cargo package.
 
 ## Adding a node
 

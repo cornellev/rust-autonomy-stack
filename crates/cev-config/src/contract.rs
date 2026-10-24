@@ -459,7 +459,7 @@ mod tests {
             ESTIMATION,
             r#"package = "rust-inekf""#,
             r#"package = "rust-inekf" 
-            command = ["ros2", "run", "inekf", "node"]"#, //WARNING: this should use Zenoh and not ROS2.
+            command = ["inekf-node"]"#
         );
         assert_eq!(
             unchecked(&both).problems(),

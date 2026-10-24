@@ -85,7 +85,7 @@ pub enum Builder {
 ///
 /// A node is either built from this workspace (`package`) or run as an external
 /// command (`command`) -- exactly one, never both. `command` exists for nodes
-/// that are not plain Cargo packages, such as the ROS 2 / colcon planner.
+/// that are not plain Cargo packages and are installed by their own toolchain.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Node {
