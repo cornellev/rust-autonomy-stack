@@ -5,6 +5,7 @@
 //! which modes. The orchestrator never routes data; it reads these to check
 //! that a car's nodes fit together before anything is launched.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -13,6 +14,7 @@ use crate::ConfigError;
 
 /// File name every node repository needs to provide at the package root.
 pub const CONTRACT_FILE: &str = "cev-node.toml";
+pub const CONTRACT_VERSION: u32 = 1;
 
 /// What a node repository promises the rest of the stack.
 #[derive(Debug, Clone, Deserialize)]
@@ -61,7 +63,10 @@ pub struct Run {
 #[serde(tag = "device", rename_all = "lowercase")]
 pub enum Compute {
     Cpu,
-    Gpu { model: String, runtime: String }, //NOTE: this should have an optional model, as this should be a check when building the package that it exists and not the other way around.
+    Gpu {
+        model: Option<String>,
+        runtime: String,
+    }, //NOTE: this should have an optional model, as this should be a check when building the package that it exists and not the other way around.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -109,6 +114,24 @@ pub struct Metric {
     pub when: Vec<RunKind>,
 }
 
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ContractProblem {
+    #[error("contract_version = {found}, but this cev reads version {expected}")]
+    UnsupportedVersion { found: u32, expected: u32 },
+    #[error("`run` sets both `package` and `command`; pick one")]
+    BothPackageAndCommand,
+    #[error("`run` sets neither `package` nor `command`")]
+    NeitherPackageNorCommand,
+    #[error("`run.bin` is set without `run.package`")]
+    BinWithoutPackage,
+    #[error("`modes` is empty, so this node never runs")]
+    NoModes,
+    #[error("topic `{topic}`: {rate_hz} Hz is not a positive, finite rate")]
+    BadRate { topic: String, rate_hz: f64 },
+    #[error("topic `{topic}` is listed twice in `{section}`")]
+    DuplicateTopic { section: String, topic: String },
+}
+
 impl NodeContract {
     /// Parse a contract from text. `path` is only used in error messages.
     pub fn from_toml_str(text: &str, path: &Path) -> Result<Self, ConfigError> {
@@ -117,6 +140,18 @@ impl NodeContract {
                 path: path.to_path_buf(),
                 source,
             })?;
+        let problems = contract.problems();
+        if !problems.is_empty() {
+            let mut message = String::from("contract violations: ");
+            for problem in &problems {
+                message.push_str("\n - ");
+                message.push_str(&problem.to_string());
+            }
+            return Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                message,
+            });
+        }
         contract.path = path.to_path_buf();
         Ok(contract)
     }
@@ -128,6 +163,79 @@ impl NodeContract {
             source,
         })?;
         Self::from_toml_str(&text, path)
+    }
+
+    /// Everything wrong with this contract, checked in isolation: no other
+    /// node is consulted. Emtpy means valid.
+    /// Each case is checked independently and pushed into a vector of problem enums.
+    pub fn problems(&self) -> Vec<ContractProblem> {
+        let mut problems = Vec::new();
+
+        if self.contract_version != CONTRACT_VERSION {
+            problems.push(ContractProblem::UnsupportedVersion {
+                found: self.contract_version,
+                expected: CONTRACT_VERSION,
+            });
+        }
+
+        let run = &self.run;
+        match (run.package.is_some(), !run.command.is_empty()) {
+            (true, true) => problems.push(ContractProblem::BothPackageAndCommand),
+            (false, false) => problems.push(ContractProblem::NeitherPackageNorCommand),
+            _ => {}
+        }
+        if run.package.is_none() && run.bin.is_some() {
+            problems.push(ContractProblem::BinWithoutPackage);
+        }
+
+        if self.modes.is_empty() {
+            problems.push(ContractProblem::NoModes);
+        }
+
+        for input in &self.inputs {
+            if let Some(problem) = rate_problem(&input.topic, input.min_rate_hz) {
+                problems.push(problem);
+            }
+        }
+
+        for output in &self.outputs {
+            if let Some(problem) = rate_problem(&output.topic, output.rate_hz) {
+                problems.push(problem);
+            }
+        }
+
+        let mut seen = HashSet::new();
+        for input in &self.inputs {
+            if !seen.insert(input.topic.as_str()) {
+                problems.push(ContractProblem::DuplicateTopic {
+                    section: "inputs".to_string(),
+                    topic: input.topic.clone(),
+                });
+            }
+        }
+
+        let mut seen = HashSet::new();
+        for output in &self.outputs {
+            if !seen.insert(output.topic.as_str()) {
+                problems.push(ContractProblem::DuplicateTopic {
+                    section: "outputs".to_string(),
+                    topic: output.topic.clone(),
+                })
+            }
+        }
+
+        problems
+    }
+}
+
+/// Check that rate_hz is finite and not NAN
+fn rate_problem(topic: &str, rate_hz: f64) -> Option<ContractProblem> {
+    match rate_hz {
+        _ if rate_hz.is_finite() && rate_hz > 0.0 => None,
+        _ => Some(ContractProblem::BadRate {
+            topic: topic.to_string(),
+            rate_hz,
+        }),
     }
 }
 
@@ -161,8 +269,21 @@ mod tests {
         when = ["sim", "real"]
     "#;
 
+    /// Deserialize without running [`NodeContract::problems`] so tests can
+    /// hold an invalid contract and inspect what's wrong with it.
+    fn unchecked(text: &str) -> NodeContract {
+        toml::from_str::<NodeContract>(text).unwrap_or_else(|err| panic!("{err}"))
+    }
+
     fn parse(text: &str) -> Result<NodeContract, ConfigError> {
         NodeContract::from_toml_str(text, Path::new("test.toml"))
+    }
+
+    /// `str::replace`, but panics if `from` is not in `text`.     
+    #[track_caller]
+    fn edit(text: &str, from: &str, to: &str) -> String {
+        assert!(text.contains(from), "fixture does not contain {from:?}");
+        text.replace(from, to)
     }
 
     #[track_caller]
@@ -203,7 +324,7 @@ mod tests {
         assert_eq!(
             contract.compute,
             Compute::Gpu {
-                model: "models/yolo.onnx".to_string(),
+                model: Some("models/yolo.onnx".to_string()),
                 runtime: "tensorrt".to_string(),
             }
         );
@@ -212,19 +333,127 @@ mod tests {
 
     #[test]
     fn gpu_without_model_is_rejected() {
-        let text = ESTIMATION.replace(r#"device = "cpu""#, r#"device = "gpu""#);
+        let text = edit(ESTIMATION,r#"device = "cpu""#, r#"device = "gpu""#);
         assert!(parse(&text).is_err());
     }
 
     #[test]
     fn unknown_mode_is_rejected() {
-        let text = ESTIMATION.replace("\"teleop\"", "\"teleopp\"");
+        let text = edit(ESTIMATION,"\"teleop\"", "\"teleopp\"");
         assert!(parse(&text).is_err());
     }
 
     #[test]
     fn missing_modes_is_rejected() {
-        let text = ESTIMATION.replace(r#"modes = ["teleop", "autonomous", "efficiency"]"#, "");
+        let text = edit(ESTIMATION,r#"modes = ["teleop", "autonomous", "efficiency"]"#, "");
         assert!(parse(&text).is_err());
+    }
+
+    #[test]
+    fn valid_contract_has_no_problems() {
+        assert_eq!(unchecked(ESTIMATION).problems(), vec![]);
+    }
+
+    #[test]
+    fn wrong_version_is_problem() {
+        let text = edit(ESTIMATION,"contract_version = 1", "contract_version = 2");
+        assert_eq!(
+            unchecked(&text).problems(),
+            vec![ContractProblem::UnsupportedVersion {
+                found: 2,
+                expected: CONTRACT_VERSION,
+            }]
+        );
+    }
+
+    #[test]
+    fn package_and_command_are_exclusive() {
+        let both = edit(
+            ESTIMATION,
+            r#"package = "rust-inekf""#,
+            r#"package = "rust-inekf" 
+            command = ["ros2", "run", "inekf", "node"]"#, //WARNING: this should use Zenoh and not ROS2.
+        );
+        assert_eq!(
+            unchecked(&both).problems(),
+            vec![ContractProblem::BothPackageAndCommand]
+        );
+
+        let neither = edit(ESTIMATION,r#"package = "rust-inekf""#, "");
+
+        assert_eq!(
+            unchecked(&neither).problems(),
+            vec![ContractProblem::NeitherPackageNorCommand]
+        );
+    }
+
+    #[test]
+    fn empty_nodes_is_a_problem() {
+        let text = edit(
+            ESTIMATION,
+            r#"modes = ["teleop", "autonomous", "efficiency"]"#,
+            "modes = []",
+        );
+        assert_eq!(unchecked(&text).problems(), vec![ContractProblem::NoModes]);
+    }
+
+    #[test]
+    fn bad_rates_are_problems() {
+        for bad in ["0.0", "-5.0", "nan", "inf"] {
+            let text = edit(ESTIMATION,"rate_hz = 200.0", &format!("rate_hz = {bad}"));
+            let problems = unchecked(&text).problems();
+            // Both `min_rate_hz` and `rate_hz` end in `rate_hz = 200.0`
+            assert_eq!(problems.len(), 2, "rate: {bad}: {problems:?}");
+            for problem in &problems {
+                assert!(
+                    matches!(problem, ContractProblem::BadRate { .. }),
+                    "rate {bad}: {problem}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn duplicate_topic_is_a_problem() {
+        let text = format!(
+            "{ESTIMATION}
+            [[inputs]]
+            topic = \"/sensors/imu\"
+            type = \"cev_msgs/IMU\"
+            min_rate_hz = 50.0
+            "
+        );
+
+        assert_eq!(
+            unchecked(&text).problems(),
+            vec![ContractProblem::DuplicateTopic {
+                section: "inputs".to_string(),
+                topic: "/sensors/imu".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn all_problems_reported_together() {
+        let text = edit(
+            ESTIMATION, r#"package = "rust-inekf""#, ""
+        );
+        let text = edit(
+            &text,
+            r#"modes = ["teleop", "autonomous", "efficiency"]"#,
+            "modes = []",
+        );
+        assert_eq!(unchecked(&text).problems().len(), 2);
+    }
+
+    #[test]
+    fn parsing_rejects_invalid_contract() {
+        let text = edit(
+            ESTIMATION,
+            r#"modes = ["teleop", "autonomous", "efficiency"]"#,
+            "modes = []",
+        );
+        let err = parse(&text).unwrap_err().to_string();
+        assert!(err.contains("`modes` is empty"), "{err}");
     }
 }
