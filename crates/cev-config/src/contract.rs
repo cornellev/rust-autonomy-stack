@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use sensor_defs::MsgType;
+
 use crate::ConfigError;
 
 /// File name every node repository needs to provide at the package root.
@@ -128,6 +130,10 @@ pub enum ContractProblem {
     NoModes,
     #[error("topic `{topic}`: {rate_hz} Hz is not a positive, finite rate")]
     BadRate { topic: String, rate_hz: f64 },
+    #[error("topic `{topic}` is not a usable Zenoh key: {reason}")]
+    BadTopic { topic: String, reason: String },
+    #[error("topic `{topic}`: unknown type `{msg_type}` (not a sensor_defs::MsgType)")]
+    UnknownType { topic: String, msg_type: String },
     #[error("topic `{topic}` is listed twice in `{section}`")]
     DuplicateTopic { section: String, topic: String },
 }
@@ -193,6 +199,30 @@ impl NodeContract {
         }
 
         for input in &self.inputs {
+            if let Some(problem) = topic_problem(&input.topic) {
+                problems.push(problem);
+            }
+        }
+
+        for output in &self.outputs {
+            if let Some(problem) = topic_problem(&output.topic) {
+                problems.push(problem);
+            }
+        }
+
+        for input in &self.inputs {
+            if let Some(problem) = type_problem(&input.topic, &input.msg_type) {
+                problems.push(problem);
+            }
+        }
+
+        for output in &self.outputs {
+            if let Some(problem) = type_problem(&output.topic, &output.msg_type) {
+                problems.push(problem);
+            }
+        }
+
+        for input in &self.inputs {
             if let Some(problem) = rate_problem(&input.topic, input.min_rate_hz) {
                 problems.push(problem);
             }
@@ -228,6 +258,41 @@ impl NodeContract {
     }
 }
 
+/// A topic must be a valid Zenooh key expression with no wildcards. Zenoh
+/// itself forbids empty chunks (so no leading, trailing or doubled `/`)
+/// and the characters `#` and `?`. We also forbid `*` and `$`: a wildcard key
+/// matches many topics, and the graph check needs each topic to name exactly one.
+fn topic_problem(topic: &str) -> Option<ContractProblem> {
+    let reason = if topic.starts_with('/') || topic.ends_with('/') {
+        "no leading or trailing `/`"
+    } else if topic.split('/').any(|chunk| chunk.is_empty()) {
+        "no empty chunks (`//`, or an empty topic)"
+    } else if topic.contains(['#', '?']) {
+        "`#` and `?` are forbidden"
+    } else if topic.contains(['*', '$']) {
+        "wildcards (`*`, `**`, `$*`) are not allowed in a contract"
+    } else {
+        return None;
+    };
+    Some(ContractProblem::BadTopic {
+        topic: topic.to_string(),
+        reason: reason.to_string(),
+    })
+}
+
+///  A message type msut be one of `sensor_defs` known types, so btoh ends of a topic
+///  name a type that actually exists, not just the same string.
+fn type_problem(topic: &str, msg_type: &str) -> Option<ContractProblem> {
+    if MsgType::from_name(msg_type).is_some() {
+        None
+    } else {
+        Some(ContractProblem::UnknownType {
+            topic: topic.to_string(),
+            msg_type: msg_type.to_string(),
+        })
+    }
+}
+
 /// Check that rate_hz is finite and not NAN
 fn rate_problem(topic: &str, rate_hz: f64) -> Option<ContractProblem> {
     match rate_hz {
@@ -255,13 +320,13 @@ mod tests {
         device = "cpu"
 
         [[inputs]]
-        topic = "/sensors/imu"
-        type = "cev_msgs/IMU"
+        topic = "sensors/imu"
+        type = "IMU"
         min_rate_hz = 200.0
 
         [[outputs]]
-        topic = "/estimation/state"
-        type = "cev_msgs/Odometry"
+        topic = "estimation/state"
+        type = "StateEstimate"
         rate_hz = 200.0
 
         [[metrics]]
@@ -300,7 +365,7 @@ mod tests {
         assert_eq!(contract.role, "estimation");
         assert_eq!(contract.compute, Compute::Cpu);
         assert_eq!(contract.modes.len(), 3);
-        assert_eq!(contract.inputs[0].msg_type, "cev_msgs/IMU");
+        assert_eq!(contract.inputs[0].msg_type, "IMU");
         assert_eq!(contract.outputs[0].rate_hz, 200.0);
         assert_eq!(contract.metrics[0].when, vec![RunKind::Sim, RunKind::Real]);
     }
@@ -330,9 +395,9 @@ mod tests {
         );
         assert!(contract.inputs.is_empty());
     }
-    
+
     #[test]
-    fn gpu_wthout_model_is_accepted() {
+    fn gpu_without_model_is_accepted() {
         let text = edit(
             ESTIMATION,
             r#"device = "cpu""#,
@@ -348,22 +413,26 @@ mod tests {
             }
         );
     }
-    
+
     #[test]
     fn gpu_without_runtime_is_rejected() {
-        let text = edit(ESTIMATION,r#"device = "cpu""#, r#"device = "gpu""#);
+        let text = edit(ESTIMATION, r#"device = "cpu""#, r#"device = "gpu""#);
         assert!(parse(&text).is_err());
     }
 
     #[test]
     fn unknown_mode_is_rejected() {
-        let text = edit(ESTIMATION,"\"teleop\"", "\"teleopp\"");
+        let text = edit(ESTIMATION, "\"teleop\"", "\"teleopp\"");
         assert!(parse(&text).is_err());
     }
 
     #[test]
     fn missing_modes_is_rejected() {
-        let text = edit(ESTIMATION,r#"modes = ["teleop", "autonomous", "efficiency"]"#, "");
+        let text = edit(
+            ESTIMATION,
+            r#"modes = ["teleop", "autonomous", "efficiency"]"#,
+            "",
+        );
         assert!(parse(&text).is_err());
     }
 
@@ -374,7 +443,7 @@ mod tests {
 
     #[test]
     fn wrong_version_is_problem() {
-        let text = edit(ESTIMATION,"contract_version = 1", "contract_version = 2");
+        let text = edit(ESTIMATION, "contract_version = 1", "contract_version = 2");
         assert_eq!(
             unchecked(&text).problems(),
             vec![ContractProblem::UnsupportedVersion {
@@ -397,7 +466,7 @@ mod tests {
             vec![ContractProblem::BothPackageAndCommand]
         );
 
-        let neither = edit(ESTIMATION,r#"package = "rust-inekf""#, "");
+        let neither = edit(ESTIMATION, r#"package = "rust-inekf""#, "");
 
         assert_eq!(
             unchecked(&neither).problems(),
@@ -420,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_nodes_is_a_problem() {
+    fn empty_modes_is_a_problem() {
         let text = edit(
             ESTIMATION,
             r#"modes = ["teleop", "autonomous", "efficiency"]"#,
@@ -432,7 +501,7 @@ mod tests {
     #[test]
     fn bad_rates_are_problems() {
         for bad in ["0.0", "-5.0", "nan", "inf"] {
-            let text = edit(ESTIMATION,"rate_hz = 200.0", &format!("rate_hz = {bad}"));
+            let text = edit(ESTIMATION, "rate_hz = 200.0", &format!("rate_hz = {bad}"));
             let problems = unchecked(&text).problems();
             // Both `min_rate_hz` and `rate_hz` end in `rate_hz = 200.0`
             assert_eq!(problems.len(), 2, "rate: {bad}: {problems:?}");
@@ -450,8 +519,8 @@ mod tests {
         let text = format!(
             "{ESTIMATION}
             [[inputs]]
-            topic = \"/sensors/imu\"
-            type = \"cev_msgs/IMU\"
+            topic = \"sensors/imu\"
+            type = \"IMU\"
             min_rate_hz = 50.0
             "
         );
@@ -460,16 +529,14 @@ mod tests {
             unchecked(&text).problems(),
             vec![ContractProblem::DuplicateTopic {
                 section: "inputs".to_string(),
-                topic: "/sensors/imu".to_string(),
+                topic: "sensors/imu".to_string(),
             }]
         );
     }
 
     #[test]
     fn all_problems_reported_together() {
-        let text = edit(
-            ESTIMATION, r#"package = "rust-inekf""#, ""
-        );
+        let text = edit(ESTIMATION, r#"package = "rust-inekf""#, "");
         let text = edit(
             &text,
             r#"modes = ["teleop", "autonomous", "efficiency"]"#,
@@ -487,5 +554,56 @@ mod tests {
         );
         let err = parse(&text).unwrap_err().to_string();
         assert!(err.contains("`modes` is empty"), "{err}");
+    }
+
+    #[test]
+    fn bad_topics_are_problems() {
+        for bad in [
+            "",
+            "/sensors/imu",
+            "sensors/imu/",
+            "sensors//imu",
+            "sensors/*",
+            "sensors/**",
+            "sensors/$*imu",
+            "sensors/imu?",
+            "sensors#imu",
+        ] {
+            assert!(
+                matches!(topic_problem(bad), Some(ContractProblem::BadTopic { .. }),),
+                "{bad:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn zenoh_keys_are_accepted() {
+        for good in ["sensors/imu", "estimation/state", "a", "lidar/front-left_0"] {
+            assert_eq!(topic_problem(good), None, "{good}");
+        }
+    }
+
+    #[test]
+    fn bad_topic_in_contract_is_problem() {
+        let text = edit(
+            ESTIMATION,
+            r#"topic = "sensors/imu""#,
+            r#"topic = "/sensors/imu""#,
+        );
+        let problems = unchecked(&text).problems();
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(matches!(problems[0], ContractProblem::BadTopic { .. }));
+    }
+
+    #[test]
+    fn unknown_type_is_a_problem() {
+        let text = edit(ESTIMATION, r#"type = "IMU""#, r#"type = "cev_msgs/IMU""#);
+        assert_eq!(
+            unchecked(&text).problems(),
+            vec![ContractProblem::UnknownType {
+                topic: "sensors/imu".to_string(),
+                msg_type: "cev_msgs/IMU".to_string()
+            }]
+        );
     }
 }

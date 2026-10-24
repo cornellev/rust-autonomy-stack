@@ -10,3 +10,4 @@ description = "Per-car deployment manifests for the CEV autonomy stack."
 serde.workspace = true
 toml.workspace = true
 thiserror.workspace = true
+sensor-defs.workspace = true
