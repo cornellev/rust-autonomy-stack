@@ -1,8 +1,11 @@
 //! `cev` -- orchestration for the CEV autonomy stack.
 //!
-//! The nodes live in their own repositories, pulled in by `gitman` and built as
-//! members of this workspace. The cars live in `cars/`. This binary is the glue:
+//! The ndoes live in their own repositories, pulled in as git dependencies of
+//! `crates/cev-nodes` and built with `cargo build -p <node>`.  The cars live in `cars/`. This
+//! binary is the glue:
 //! it reads a car manifest and either runs the stack here or ships it there.
+//WARNING: this should all build together into one systemctl service that can be started by the
+//user, not per package.
 
 mod deploy;
 mod group;
@@ -87,21 +90,7 @@ fn main() -> Result<()> {
 
 fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>) -> Result<()> {
     let mut problems = 0;
-
-    for path in group::broken_links(root)? {
-        println!(
-            "broken: {} is a dangling link (rerun `uvx gitman install`)",
-            path.display()
-        );
-        problems += 1;
-    }
-
     let packages = group::packages(root)?;
-    let names: Vec<&str> = packages.iter().map(|p| p.name.as_str()).collect();
-    for package in &packages {
-        let dir = package.dir.strip_prefix(root).unwrap_or(&package.dir);
-        println!("package {:<16} {}", package.name, dir.display());
-    }
 
     let cars = match only {
         Some(name) => vec![name.to_string()],
@@ -110,13 +99,16 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     for name in cars {
         let car = Car::load(cars_dir, &name)?;
         println!("car {name}: {} node(s)", car.nodes.len());
-        for package in car.cargo_packages() {
-            if !names.contains(&package) {
-                println!(
-                    "  missing: node package `{package}` is not in the workspace \
-                     (is it in gitman.yml, and did you run `uvx gitman install`?)"
-                );
-                problems += 1;
+        for wanted in car.cargo_packages() {
+            match packages.iter().find(|p| p.name == wanted) {
+                Some(package) => println!(" {wanted:<16} {}", package.dir.display()),
+                None => {
+                    println!(
+                        " missing: node package `{wanted}` is not resolved \
+                    (is it a dependency in crates/cev-nodes/Cargo.toml?)"
+                    );
+                    problems += 1;
+                }
             }
         }
     }

@@ -322,6 +322,8 @@ dependencies = [
  "cev-config",
  "clap",
  "ctrlc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
