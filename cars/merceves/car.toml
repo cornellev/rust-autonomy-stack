@@ -8,6 +8,9 @@
 
 name = "merceves"
 description = "MerCEVes autonomous testbed (Jetson)"
+kind = "real"
+modes = ["teleop", "autonomous"]
+gpu = true
 
 [env]
 RUST_LOG = "info"

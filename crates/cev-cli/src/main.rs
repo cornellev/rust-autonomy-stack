@@ -104,7 +104,6 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
             "Checking",
             format!("car {name} ({} node(s))", car.nodes.len()),
         );
-        println!("car {name}: {} node(s)", car.nodes.len());
         for wanted in car.cargo_packages() {
             match packages.iter().find(|p| p.name == wanted) {
                 Some(package) => match NodeContract::load(&package.contract_path()) {

@@ -10,6 +10,7 @@ pub mod contract;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::contract::{Mode, RunKind};
 use serde::Deserialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +41,16 @@ pub struct Car {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    /// Whether this car drives a simulator or a real vehicle. Picks which
+    /// contract metrics apply.
+    pub kind: RunKind,
+    /// Modes this car supports. Required and explicit, same as NodeContract.
+    /// A node runs in a mode only if both the car and contract list it the same way.
+    pub modes: Vec<Mode>,
+    /// Whether this car has a GPU onboard. GPU nodes are refused on a car that doesn't contain one.
+    //NOTE: this is mainly for sim to work on macOS, we might want to add Metal in the future to
+    //ensure that this isn't the case.
+    pub gpu: bool,
     /// Environment applied to every node, before per-node `env`.
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -212,6 +223,10 @@ impl Car {
             )));
         }
 
+        if self.modes.is_empty() {
+            return Err(invalid("`modes` is empty, so nothing can run".to_string()));
+        }
+
         let mut seen = BTreeMap::new();
         for node in &self.nodes {
             if seen.insert(node.name.clone(), ()).is_some() {
@@ -240,5 +255,57 @@ impl Car {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SIM: &str = r#"
+        name = "sim"
+        kind = "sim"
+        modes = ["teleop", "autonomous"]
+        gpu = false
+    "#;
+
+    /// Parse and validate as if the file were `cars/sim/car.toml`.
+    fn parse(text: &str) -> Result<Car, ConfigError> {
+        let path = Path::new("cars/sim/car.toml");
+        let mut car: Car = toml::from_str(text).map_err(|source| ConfigError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        car.dir = PathBuf::from("cars/sim");
+        car.validate(path)?;
+        Ok(car)
+    }
+
+    #[test]
+    fn car_level_fields_parse() {
+        let car = parse(SIM).unwrap();
+        assert_eq!(car.kind, RunKind::Sim);
+        assert_eq!(car.modes, vec![Mode::Teleop, Mode::Autonomous]);
+        assert!(!car.gpu);
+    }
+
+    #[test]
+    fn kind_and_gpu_are_required() {
+        for line in [r#"kind = "sim""#, "gpu = false"] {
+            let text = SIM.replace(line, "");
+            assert!(
+                matches!(parse(&text), Err(ConfigError::Parse { .. })),
+                "without {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_modes_is_invalid() {
+        let text = SIM.replace(r#"modes = ["teleop", "autonomous"]"#, "modes = []");
+        assert!(
+            matches!(parse(&text), Err(ConfigError::Invalid { .. })),
+            "`modes` is empty"
+        );
     }
 }
