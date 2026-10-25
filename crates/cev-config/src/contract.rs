@@ -459,7 +459,7 @@ mod tests {
             ESTIMATION,
             r#"package = "rust-inekf""#,
             r#"package = "rust-inekf" 
-            command = ["inekf-node"]"#
+            command = ["inekf-node"]"#,
         );
         assert_eq!(
             unchecked(&both).problems(),
