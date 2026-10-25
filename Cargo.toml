@@ -1,7 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "nodes/*"]
-exclude = ["repos"]
+members = ["crates/*"]
+# A bare `cargo build/test/clippy` skips cev-nodes: building it compiles every
+# node, and zed-reader needs the ZED SDK. Build a node with `cargo build -p <node>`.
+default-members = ["crates/cev-cli", "crates/cev-config"]
 
 [workspace.package]
 edition = "2024"
@@ -13,9 +15,10 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"
+serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 ctrlc = { version = "3", features = ["termination"] }
 cev-config = { path = "crates/cev-config" }
-sensor-defs = { git = "https://github.com/cornellev/rust-autonomy-sensors", rev = "5d892c1dd658dc3a8fb188818b6843fa3722f282" }
+sensor-defs = { git = "https://github.com/cornellev/rust-autonomy-sensors", branch = "extra-sensors" }

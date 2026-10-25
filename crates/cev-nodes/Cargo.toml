@@ -1,0 +1,17 @@
+[package]
+name = "cev-nodes"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Which node repositories make up the stack, and at which branch."
+publish = false
+
+# Each node is a git dependency so `cargo build -p <node>` builds its binary
+# and `cargo metadata` reports where its checkout (and cev-node.toml) lives.
+# The sensor-defs spec in these repos must match [workspace.dependencies]
+# exactly, or Cargo builds two copies.
+[dependencies]
+holdover-ekf = { git = "https://github.com/cornellev/holdover-ekf", branch = "sensor-integration" }
+rust-inekf = { git = "https://github.com/cornellev/rust-inekf", branch = "main" }
+zed-reader = { git = "https://github.com/cornellev/rust-autonomy-sensors", branch = "extra-sensors" }
