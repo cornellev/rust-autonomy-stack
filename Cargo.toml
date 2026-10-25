@@ -12,6 +12,8 @@ license = "MIT"
 
 [workspace.dependencies]
 anyhow = "1"
+anstream = "1"
+anstyle = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"

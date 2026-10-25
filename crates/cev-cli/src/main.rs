@@ -10,6 +10,7 @@
 mod deploy;
 mod group;
 mod launch;
+mod ui;
 
 use anyhow::Result;
 use cev_config::Car;
@@ -99,21 +100,27 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     };
     for name in cars {
         let car = Car::load(cars_dir, &name)?;
+        ui::status(
+            "Checking",
+            format!("car {name} ({} node(s))", car.nodes.len()),
+        );
         println!("car {name}: {} node(s)", car.nodes.len());
         for wanted in car.cargo_packages() {
             match packages.iter().find(|p| p.name == wanted) {
                 Some(package) => match NodeContract::load(&package.contract_path()) {
-                    Ok(contract) => println!("{wanted:<16} {}", contract.path.display()),
+                    Ok(contract) => {
+                        ui::status("Found", format!("{wanted} {}", contract.path.display()))
+                    }
                     Err(e) => {
-                        println!("invalid: {e}");
+                        ui::error(e);
                         problems += 1;
                     }
                 },
                 None => {
-                    println!(
-                        " missing: node package `{wanted}` is not resolved \
+                    ui::error(format!(
+                        "node package `{wanted}` is not resolved \
                     (is it a dependency in crates/cev-nodes/Cargo.toml?)"
-                    );
+                    ));
                     problems += 1;
                 }
             }
@@ -121,7 +128,7 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     }
 
     if problems == 0 {
-        println!("ok");
+        ui::status("Finished", "no problems");
         Ok(())
     } else {
         anyhow::bail!("{problems} problem(s)")
