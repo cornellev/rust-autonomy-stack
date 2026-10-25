@@ -1,6 +1,6 @@
 //! `cev` -- orchestration for the CEV autonomy stack.
 //!
-//! The ndoes live in their own repositories, pulled in as git dependencies of
+//! The nodes live in their own repositories, pulled in as git dependencies of
 //! `crates/cev-nodes` and built with `cargo build -p <node>`.  The cars live in `cars/`. This
 //! binary is the glue:
 //! it reads a car manifest and either runs the stack here or ships it there.
@@ -13,6 +13,7 @@ mod launch;
 
 use anyhow::Result;
 use cev_config::Car;
+use cev_config::contract::NodeContract;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -101,7 +102,13 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
         println!("car {name}: {} node(s)", car.nodes.len());
         for wanted in car.cargo_packages() {
             match packages.iter().find(|p| p.name == wanted) {
-                Some(package) => println!(" {wanted:<16} {}", package.dir.display()),
+                Some(package) => match NodeContract::load(&package.contract_path()) {
+                    Ok(contract) => println!("{wanted:<16} {}", contract.path.display()),
+                    Err(e) => {
+                        println!("invalid: {e}");
+                        problems += 1;
+                    }
+                },
                 None => {
                     println!(
                         " missing: node package `{wanted}` is not resolved \
@@ -118,5 +125,38 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
         Ok(())
     } else {
         anyhow::bail!("{problems} problem(s)")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every package node on every car ships a valid contract that names
+    /// the package that it lives in.
+    #[test]
+    fn every_car_node_has_valid_contract() {
+        let root = group::find_root(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let packages = group::packages(&root).unwrap();
+        let cars_dir = root.join("cars");
+
+        for name in Car::list(&cars_dir).unwrap() {
+            let car = Car::load(&cars_dir, &name).unwrap();
+            for wanted in car.cargo_packages() {
+                let Some(package) = packages.iter().find(|p| p.name == wanted) else {
+                    panic!("car {name}: node package `{wanted}` is not resolved");
+                };
+                let contract = match NodeContract::load(&package.contract_path()) {
+                    Ok(contract) => contract,
+                    Err(e) => panic!("car {name}: {e}"),
+                };
+                assert_eq!(
+                    contract.run.package.as_deref(),
+                    Some(wanted),
+                    "car {name}: {} displays the wrong package",
+                    contract.path.display()
+                );
+            }
+        }
     }
 }

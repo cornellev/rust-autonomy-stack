@@ -10,7 +10,7 @@ use serde::Deserialize;
 /// a `Cargo.toml` file and a `cars/` directory.
 pub fn find_root(start: &Path) -> Result<PathBuf> {
     for dir in start.ancestors() {
-        if dir.join("Cargo.toml").is_file() && dir.join("cars").exists() {
+        if dir.join("Cargo.toml").is_file() && dir.join("cars").is_dir() {
             return Ok(dir.to_path_buf());
         }
     }
@@ -29,6 +29,13 @@ pub fn cwd_root() -> Result<PathBuf> {
 pub struct Package {
     pub name: String,
     pub dir: PathBuf,
+}
+
+impl Package {
+    /// Where the package's node contract lives, whether it exists or not
+    pub fn contract_path(&self) -> PathBuf {
+        self.dir.join(cev_config::contract::CONTRACT_FILE)
+    }
 }
 
 #[derive(Deserialize)]

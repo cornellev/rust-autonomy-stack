@@ -1131,7 +1131,7 @@ dependencies = [
 [[package]]
 name = "holdover-ekf"
 version = "0.1.0"
-source = "git+https://github.com/cornellev/holdover-ekf?branch=sensor-integration#9786bed8590db50e1c13fabc1edba7db2d141dfa"
+source = "git+https://github.com/cornellev/holdover-ekf?branch=sensor-integration#5efcc16de7f380231e64db5e1c249e31cd41bb42"
 dependencies = [
  "anyhow",
  "map_3d",
