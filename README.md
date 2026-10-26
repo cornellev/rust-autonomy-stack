@@ -66,6 +66,12 @@ of which need SDKs a laptop does not have).
 A repository that is itself a Cargo workspace (like `rust-autonomy-sensors`) is
 fine: the git dependency names the package, and Cargo finds it inside.
 
+**Every node is a Cargo package**: there is no `command = [...]` node. The
+contract belongs to the crate, not the repository, so a repo holding several
+planners gives each crate its own `cev-node.toml`, and `run.bin` picks between
+binaries in one crate. C++ behind a `build.rs` (as in `zed-reader`) is still a
+Cargo package. A non-Cargo program would join through a thin wrapper crate.
+
 ## Cars live here, not in a per-car repository
 
 The alternative was a separate deployment repository per car, selected when you

@@ -209,12 +209,6 @@ mod tests {
                     compatibility.is_empty(),
                     "car {name}: {wanted}: {compatibility:?}"
                 );
-                assert_eq!(
-                    contract.run.package.as_deref(),
-                    Some(wanted),
-                    "car {name}: {} displays the wrong package",
-                    contract.path.display()
-                );
             }
         }
     }

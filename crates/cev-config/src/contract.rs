@@ -28,6 +28,9 @@ pub struct NodeContract {
     pub role: String,
     #[serde(default)]
     pub description: String,
+    /// How to start the node. Optional:: with no `[run]` table, cev runs the
+    /// package default's binary with no arguments.
+    #[serde(default)]
     pub run: Run,
     pub compute: Compute,
     /// Modes this node runs in. Required and explicit: a node is off in
@@ -44,16 +47,13 @@ pub struct NodeContract {
     pub path: PathBuf,
 }
 
-/// How to start the node: a workspace `package`, or an external `command`.
-#[derive(Debug, Clone, Deserialize)]
+/// How to start the node. Every node is a Cargo package, and the package is
+/// whichever opne this contract ships in, so it isn't repeated here.
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Run {
-    pub package: Option<String>,
     /// Binary within `package`; defaults to the package name.
     pub bin: Option<String>,
-    /// External command, argv style. Mutually exclusive with `package`.
-    #[serde(default)]
-    pub command: Vec<String>,
     #[serde(default)]
     pub args: Vec<String>,
 }
@@ -141,12 +141,6 @@ pub struct Metric {
 pub enum ContractProblem {
     #[error("contract_version = {found}, but this cev reads version {expected}")]
     UnsupportedVersion { found: u32, expected: u32 },
-    #[error("`run` sets both `package` and `command`; pick one")]
-    BothPackageAndCommand,
-    #[error("`run` sets neither `package` nor `command`")]
-    NeitherPackageNorCommand,
-    #[error("`run.bin` is set without `run.package`")]
-    BinWithoutPackage,
     #[error("`modes` is empty, so this node never runs")]
     NoModes,
     #[error("topic `{topic}`: {rate_hz} Hz is not a positive, finite rate")]
@@ -213,16 +207,6 @@ impl NodeContract {
                 found: self.contract_version,
                 expected: CONTRACT_VERSION,
             });
-        }
-
-        let run = &self.run;
-        match (run.package.is_some(), !run.command.is_empty()) {
-            (true, true) => problems.push(ContractProblem::BothPackageAndCommand),
-            (false, false) => problems.push(ContractProblem::NeitherPackageNorCommand),
-            _ => {}
-        }
-        if run.package.is_none() && run.bin.is_some() {
-            problems.push(ContractProblem::BinWithoutPackage);
         }
 
         if self.modes.is_empty() {
@@ -360,9 +344,6 @@ mod tests {
         role = "estimation"
         modes = ["teleop", "autonomous", "efficiency"]
 
-        [run]
-        package = "rust-inekf"
-
         [compute]
         device = "cpu"
 
@@ -453,9 +434,6 @@ mod tests {
             role = "perception"
             modes = ["autonomous"]
 
-            [run]
-            command = ["python3", "-m", "detector"]
-
             [compute]
             device = "gpu"
             model = "models/yolo.onnx"
@@ -530,41 +508,6 @@ mod tests {
     }
 
     #[test]
-    fn package_and_command_are_exclusive() {
-        let both = edit(
-            ESTIMATION,
-            r#"package = "rust-inekf""#,
-            r#"package = "rust-inekf" 
-            command = ["inekf-node"]"#,
-        );
-        assert_eq!(
-            unchecked(&both).problems(),
-            vec![ContractProblem::BothPackageAndCommand]
-        );
-
-        let neither = edit(ESTIMATION, r#"package = "rust-inekf""#, "");
-
-        assert_eq!(
-            unchecked(&neither).problems(),
-            vec![ContractProblem::NeitherPackageNorCommand]
-        );
-    }
-
-    #[test]
-    fn bin_needs_package() {
-        let text = edit(
-            ESTIMATION,
-            r#"package = "rust-inekf""#,
-            r#"command = ["inekf"]
-            bin = "inekf""#,
-        );
-        assert_eq!(
-            unchecked(&text).problems(),
-            vec![ContractProblem::BinWithoutPackage]
-        );
-    }
-
-    #[test]
     fn empty_modes_is_a_problem() {
         let text = edit(
             ESTIMATION,
@@ -612,7 +555,7 @@ mod tests {
 
     #[test]
     fn all_problems_reported_together() {
-        let text = edit(ESTIMATION, r#"package = "rust-inekf""#, "");
+        let text = edit(ESTIMATION, "contract_version = 1", "contract_version = 2");
         let text = edit(
             &text,
             r#"modes = ["teleop", "autonomous", "efficiency"]"#,
@@ -734,5 +677,37 @@ mod tests {
             gpu.compatibility_problems(&car(modes.clone(), false)),
             vec![needs_gpu]
         );
+    }
+
+    #[test]
+    fn rujn_bin_and_args_parse() {
+        let text = edit(
+            ESTIMATION,
+            r#"[compute]"#,
+            r#"[run]
+            bin = "inekf-node"
+            args = ["--rate", "200"]
+            [compute]"#,
+        );
+        let contract = parse_ok(&text);
+        assert_eq!(contract.run.bin.as_deref(), Some("inekf-node"));
+        assert_eq!(contract.run.args, vec!["--rate", "200"]);
+    }
+
+    /// Contracts written before every node had to be a Cargo package named
+    /// `package` or `command`; both are now unknown fields.
+    #[test]
+    fn run_package_and_command_rejected() {
+        for line in [r#"package = "rust-inekf""#, r#"command = ["inekf"]"#] {
+            let text = edit(
+                ESTIMATION,
+                "[compute]",
+                &format!("[run]\n{line}\n[compute]"),
+            );
+            assert!(
+                matches!(parse(&text), Err(ConfigError::Parse { .. })),
+                "{line} should not parse."
+            );
+        }
     }
 }
