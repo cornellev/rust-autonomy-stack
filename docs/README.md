@@ -8,21 +8,23 @@ pages linked at the bottom.
 
 - **Node**: one program that runs on the car, such as the state estimator.
   Each node lives in its own git repository.
+- **Package**: what Cargo builds: a folder with its own `Cargo.toml`. Every
+  node is one package; one repository can hold several.
 - **Topic**: a named data stream between nodes, such as `sensors/imu`. Nodes
-  talk over [Zenoh](https://zenoh.io), a publish/subscribe library, so a
-  topic name is a Zenoh "key".
+  talk over [Zenoh](https://zenoh.io), a publish/subscribe library.
 - **Contract**: a small file, `cev-node.toml`, that each node ships. It says
   what the node reads, what it writes, how fast, and where it can run.
 - **Car**: one entry in `cars/` (`merceves`, `sim`). It says which nodes that
   vehicle runs.
 - **Mode**: what the car is doing: `teleop`, `autonomous` or `efficiency`.
+- **cev**: the stack's command-line tool, run through Cargo:
+  `cargo cev check`, `cargo launch <car>`, `cargo deploy <car>`.
 
 ## The problem
 
-On `main`, the stack cloned node repos with a separate tool (gitman) and
-symlinked them into one Cargo workspace. Each `car.toml` said how to *start*
-each node, but nothing said what a node *needs* or *produces*. So nothing
-could tell you, before you were at the car, that:
+Before this, `car.toml` said how to *start* each node, but nothing said what a
+node *needs* or *produces*. So nothing could tell you, before you were at the
+car, that:
 
 - the estimator wants IMU data at 200 Hz but nothing publishes it,
 - two nodes disagree on a topic name (`/sensors/imu` vs `sensors/imu`),
@@ -31,11 +33,32 @@ could tell you, before you were at the car, that:
 
 ## The idea
 
-Every node repository describes itself in a `cev-node.toml` contract. The
-stack never moves data between nodes; it only reads the contracts and refuses
-setups that cannot work. Getting and pinning the nodes is plain Cargo: each
-node repo is a git dependency, and `Cargo.lock` is the record of exactly which
-commit of every node a release uses.
+Every node repository describes itself in a `cev-node.toml` contract. A short
+one, for a planner:
+
+```toml
+contract_version = 1
+role = "planning"
+modes = ["autonomous"]
+
+[compute]
+device = "cpu"
+
+[[inputs]]
+topic = "estimation/state"
+type = "StateEstimate"
+min_rate_hz = 50.0
+```
+
+In words: "I am a planner. I run only in autonomous mode, on the CPU, and I
+need a state estimate at 50 Hz or faster."
+
+The stack never moves data between nodes; on the car they talk to each other
+directly over Zenoh. The stack only reads the contracts and refuses setups
+that cannot work. Getting and pinning the nodes is plain Cargo: each node repo
+is a *git dependency* (Cargo downloads it from its git URL instead of from
+crates.io), and `Cargo.lock` records exactly which commit of every node a
+release uses.
 
 ```mermaid
 flowchart LR
@@ -47,27 +70,24 @@ flowchart LR
         nodes["crates/cev-nodes<br/>git dependencies"]
         lock["Cargo.lock<br/>exact commits"]
         cars["cars/*/car.toml<br/>what each car runs"]
-        cev["cev check / launch / deploy"]
+        cev["cargo cev check<br/>cargo launch / deploy"]
+    end
+    subgraph car["the car, or sim on a laptop"]
+        n1["holdover-ekf"] <-- "Zenoh topics" --> n2["other nodes"]
     end
     ekf --> nodes
     other --> nodes
-    nodes --> lock
+    nodes -- "fetch + pin" --> lock
     lock --> cev
     cars --> cev
-    cev --> car["the car, or sim on a laptop"]
+    ekf -. "cev-node.toml" .-> cev
+    other -. "cev-node.toml" .-> cev
+    cev -- "build + start" --> car
 ```
 
-In short:
-
-1. A node repo adds a `cev-node.toml` next to its `Cargo.toml`.
-2. The stack lists the repo in `crates/cev-nodes/Cargo.toml`.
-3. A car names the node in its `car.toml`.
-4. `cargo cev check` loads every contract and reports every problem at once.
-
 Today the check covers each contract on its own and each contract against its
-car (modes, GPU). Checking nodes against *each other* (does every input have a
-producer of the right type and rate?) is the next big piece and is **planned,
-not built**. See [Status](node-contracts/design-and-status.md#status).
+car. Checking nodes against *each other* is planned; see
+[Not checked yet](node-contracts/checking.md#not-checked-yet).
 
 ## Pages
 
