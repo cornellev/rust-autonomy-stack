@@ -54,8 +54,9 @@ In words: "I am a planner. I run only in autonomous mode, on the CPU, and I
 need a state estimate at 50 Hz or faster."
 
 The stack never moves data between nodes; on the car they talk to each other
-directly over Zenoh. The stack only reads the contracts and refuses setups
-that cannot work. Getting and pinning the nodes is plain Cargo: each node repo
+directly over Zenoh. The stack only reads the contracts: `cargo cev check`
+reports setups that cannot work. Nothing runs it for you yet (not
+`cargo launch`, not CI), so run it before you launch. Getting and pinning the nodes is plain Cargo: each node repo
 is a *git dependency* (Cargo downloads it from its git URL instead of from
 crates.io), and `Cargo.lock` records exactly which commit of every node a
 release uses.
@@ -70,7 +71,8 @@ flowchart LR
         nodes["crates/cev-nodes<br/>git dependencies"]
         lock["Cargo.lock<br/>exact commits"]
         cars["cars/*/car.toml<br/>what each car runs"]
-        cev["cargo cev check<br/>cargo launch / deploy"]
+        check["cargo cev check<br/>reads contracts"]
+        run["cargo launch / deploy<br/>reads car.toml only"]
     end
     subgraph car["the car, or sim on a laptop"]
         n1["holdover-ekf"] <-- "Zenoh topics" --> n2["other nodes"]
@@ -78,11 +80,13 @@ flowchart LR
     ekf --> nodes
     other --> nodes
     nodes -- "fetch + pin" --> lock
-    lock --> cev
-    cars --> cev
-    ekf -. "cev-node.toml" .-> cev
-    other -. "cev-node.toml" .-> cev
-    cev -- "build + start" --> car
+    lock --> check
+    cars --> check
+    ekf -. "cev-node.toml" .-> check
+    other -. "cev-node.toml" .-> check
+    lock --> run
+    cars --> run
+    run -- "build + start" --> car
 ```
 
 Today the check covers each contract on its own and each contract against its

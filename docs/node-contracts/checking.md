@@ -1,7 +1,8 @@
 # Checking
 
 `cargo cev check` answers one question: can each car run the nodes it names?
-Run it after any change to a car, a contract, or `Cargo.lock`.
+Run it after any change to a car, a contract, or `Cargo.lock`. Nothing runs it
+for you yet: `cargo launch` and `cargo deploy` do not read contracts.
 
 ```bash
 cargo cev check            # every car

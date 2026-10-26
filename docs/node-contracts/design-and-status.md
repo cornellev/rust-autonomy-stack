@@ -39,7 +39,9 @@ really exists in code.
 
 **Why must a node list its modes?**
 So it is off by default. If a new mode is added later, a node (a controller,
-say) does not start in it until someone decides it should.
+say) does not start in it until someone decides it should. Today modes only
+affect `cargo cev check`; launch ignores them until launch by mode lands
+(see [Status](#status), step 4).
 
 **Why are nodes named by package, not by role?**
 So two nodes with the same role can coexist, for example two estimators

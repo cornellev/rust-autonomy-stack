@@ -55,7 +55,9 @@ It runs on the CPU in every mode and promises a state estimate at 200 Hz
 (proposed; see [Still open](design-and-status.md#still-open)). `NIS` is a
 filter-consistency number it reports both in simulation and on the real car.
 As a picture, the contract describes one box and its arrows; the stack's job
-is to make sure every arrow on a car connects to something:
+is to make sure every arrow on a car connects to something (that is the
+planned [graph check](checking.md#not-checked-yet); today each box is
+checked on its own):
 
 ```mermaid
 flowchart LR

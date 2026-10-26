@@ -8,7 +8,8 @@ your own names.
 
 **1. Be a Cargo package with a library target.** An empty `src/lib.rs` is
 enough. Without one, Cargo skips your repo with only a warning
-(`ignoring invalid dependency ... which is missing a lib target`) and the
+(`ignoring invalid dependency ... which is missing a lib target`, shown by
+`cargo build` but not by `cargo cev check`) and the
 build carries on, but `cargo metadata` leaves your package out, so
 `cargo cev check` reports ``node package `my-planner` is not resolved``
 (Cargo did not pick it up).
@@ -70,7 +71,9 @@ name = "planning"
 package = "my-planner"
 ```
 
-By default the binary named after the package runs. If your package has
+`name` is a leftover label that must be unique per car; it goes away once
+car entries name only a package. By default the binary named after the
+package runs. If your package has
 several binaries, pick one here with `bin = "..."` (and pass arguments with
 `args = [...]`). The contract's `[run]` table is read but not used until
 launch reads contracts; that and trimming `[[nodes]]` down to just `package`
