@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use sensor_defs::MsgType;
 
-use crate::ConfigError;
+use crate::{Car, ConfigError};
 
 /// File name every node repository needs to provide at the package root.
 pub const CONTRACT_FILE: &str = "cev-node.toml";
@@ -159,6 +159,16 @@ pub enum ContractProblem {
     DuplicateTopic { section: String, topic: String },
 }
 
+/// Why a valid contract still can't run on a particular car. Unlike
+/// [`ContractProblem`], these depend on both sides.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum CarCompatibilityProblem {
+    #[error("shares no mode with the car, so it would never start")]
+    NoSharedMode,
+    #[error("needs a GPU (runtime `{runtime}`), but the car has `gpu = false`")]
+    NeedsGpu { runtime: String },
+}
+
 impl NodeContract {
     /// Parse a contract from text. `path` is only used in error messages.
     pub fn from_toml_str(text: &str, path: &Path) -> Result<Self, ConfigError> {
@@ -277,6 +287,22 @@ impl NodeContract {
 
         problems
     }
+
+    pub fn compatibility_problems(&self, car: &Car) -> Vec<CarCompatibilityProblem> {
+        let mut problems = Vec::new();
+
+        if !self.modes.iter().any(|mode| car.modes.contains(mode)) {
+            problems.push(CarCompatibilityProblem::NoSharedMode);
+        }
+
+        if let (false, Compute::Gpu { runtime, .. }) = (car.gpu, &self.compute) {
+            problems.push(CarCompatibilityProblem::NeedsGpu {
+                runtime: runtime.clone(),
+            })
+        }
+
+        problems
+    }
 }
 
 /// A topic must be a valid Zenooh key expression with no wildcards. Zenoh
@@ -378,6 +404,35 @@ mod tests {
             Ok(contract) => contract,
             Err(err) => panic!("{err}"),
         }
+    }
+
+    /// A car with just the fields fit checks read.
+    fn car(modes: Vec<Mode>, gpu: bool) -> Car {
+        Car {
+            name: "test".to_string(),
+            description: String::new(),
+            kind: RunKind::Sim,
+            modes,
+            gpu,
+            env: Default::default(),
+            deploy: None,
+            nodes: Vec::new(),
+            dir: PathBuf::new(),
+        }
+    }
+
+    const ALL_MODES: [Mode; 3] = [Mode::Teleop, Mode::Autonomous, Mode::Efficiency];
+
+    /// The modes whopse bits are set in `mask` : bit 0 is teleop, bit 1
+    /// autonomous, bit 2 efficiency. Masks 1..=7 are every non-empty set.
+    fn modes_in(mask: u8) -> Vec<Mode> {
+        let mut modes = Vec::new();
+        for (i, mode) in ALL_MODES.iter().enumerate() {
+            if mask & (1 << i) != 0 {
+                modes.push(*mode);
+            }
+        }
+        modes
     }
 
     #[test]
@@ -625,6 +680,59 @@ mod tests {
                 topic: "sensors/imu".to_string(),
                 msg_type: "cev_msgs/IMU".to_string()
             }]
+        );
+    }
+
+    /// Every pair of non-empty mode sets: the node fails to be compatible
+    /// exactly when the two masks share no bit. The bitwise AND is the master copy,
+    /// computed independently of `compatibility_problems`'s `any`/`contains`.
+    #[test]
+    fn no_shared_mode_iff_mode_sets_are_disjoint() {
+        let mut contract = unchecked(ESTIMATION);
+        for car_mask in 1..=7u8 {
+            for node_mask in 1..=7u8 {
+                contract.modes = modes_in(node_mask);
+                let problems = contract.compatibility_problems(&car(modes_in(car_mask), false));
+                let disjoint = car_mask & node_mask == 0;
+                assert_eq!(
+                    problems.contains(&CarCompatibilityProblem::NoSharedMode),
+                    disjoint,
+                    "car {:?}, node {:?}",
+                    modes_in(car_mask),
+                    modes_in(node_mask)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gpu_node_needs_car_with_gpu() {
+        let cpu = unchecked(ESTIMATION);
+        let mut gpu = unchecked(ESTIMATION);
+        gpu.compute = Compute::Gpu {
+            model: None,
+            runtime: "cuda".to_string(),
+        };
+        let needs_gpu = CarCompatibilityProblem::NeedsGpu {
+            runtime: "cuda".to_string(),
+        };
+        let modes = ALL_MODES.to_vec();
+
+        assert_eq!(
+            cpu.compatibility_problems(&car(modes.clone(), false)),
+            vec![]
+        );
+        assert_eq!(
+            cpu.compatibility_problems(&car(modes.clone(), true)),
+            vec![]
+        );
+        assert_eq!(
+            gpu.compatibility_problems(&car(modes.clone(), true)),
+            vec![]
+        );
+        assert_eq!(
+            gpu.compatibility_problems(&car(modes.clone(), false)),
+            vec![needs_gpu]
         );
     }
 }

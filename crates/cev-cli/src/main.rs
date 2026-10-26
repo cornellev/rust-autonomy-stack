@@ -152,7 +152,11 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
             match packages.iter().find(|p| p.name == wanted) {
                 Some(package) => match NodeContract::load(&package.contract_path()) {
                     Ok(contract) => {
-                        ui::status("Found", format!("{wanted} {}", contract.path.display()))
+                        ui::status("Found", format!("{wanted} {}", contract.path.display()));
+                        for problem in contract.compatibility_problems(&car) {
+                            ui::error(format!("{wanted}: {problem}"));
+                            problems += 1;
+                        }
                     }
                     Err(e) => {
                         ui::error(e);
@@ -200,6 +204,11 @@ mod tests {
                     Ok(contract) => contract,
                     Err(e) => panic!("car {name}: {e}"),
                 };
+                let compatibility = contract.compatibility_problems(&car);
+                assert!(
+                    compatibility.is_empty(),
+                    "car {name}: {wanted}: {compatibility:?}"
+                );
                 assert_eq!(
                     contract.run.package.as_deref(),
                     Some(wanted),
