@@ -1,20 +1,21 @@
-//! Locating the repository group and the packages inside it.
+//! Locating the stack root and the Cargo packages that it resolves.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use serde::Deserialize;
 
-/// Walk up from `start` looking for the group root: the directory holding both
-/// `gitman.yml` and `cars/`. Works from anywhere inside the group, including
-/// from inside a cloned node repo.
+/// Walk up from `start` by looking for the stack root: the directory holding both
+/// a `Cargo.toml` file and a `cars/` directory.
 pub fn find_root(start: &Path) -> Result<PathBuf> {
     for dir in start.ancestors() {
-        if dir.join("gitman.yml").is_file() && dir.join("cars").is_dir() {
+        if dir.join("Cargo.toml").is_file() && dir.join("cars").is_dir() {
             return Ok(dir.to_path_buf());
         }
     }
     bail!(
-        "not inside a repository group (no directory above {} holds both gitman.yml and cars/)",
+        "not inside the stack (no directory above {} holds both Cargo.toml and cars/)",
         start.display()
     )
 }
@@ -24,73 +25,59 @@ pub fn cwd_root() -> Result<PathBuf> {
     find_root(&cwd)
 }
 
-/// A Cargo package visible to the workspace build.
+/// A cargo package in the resolved Dependency graph.
 pub struct Package {
     pub name: String,
     pub dir: PathBuf,
 }
 
-/// Scan `crates/*` and `nodes/*` for Cargo packages.
-///
-/// This reads manifests directly rather than shelling out to `cargo metadata`,
-/// so it still reports something useful when a `nodes/` symlink is dangling --
-/// which is exactly the state `cev check` exists to catch.
+impl Package {
+    /// Where the package's node contract lives, whether it exists or not
+    pub fn contract_path(&self) -> PathBuf {
+        self.dir.join(cev_config::contract::CONTRACT_FILE)
+    }
+}
+
+#[derive(Deserialize)]
+struct MetadataPackage {
+    name: String,
+    manifest_path: PathBuf,
+}
+
+/// The part of `cargo metadata --format-version 1` we read. No
+/// `deny_unknown_fields`: cargo adds fields over time.
+#[derive(Deserialize)]
+struct Metadata {
+    packages: Vec<MetadataPackage>,
+}
+
+/// Every package Cargo resolves for the workspace, including the node repositories.
+/// Pulled in as git dependencies of `crates/cev-nodes`.
 pub fn packages(root: &Path) -> Result<Vec<Package>> {
+    let output = Command::new("cargo")
+        .current_dir(root)
+        .args(["metadata", "--format-version", "1"])
+        .output()
+        .context("running `cargo metadata`")?;
+    if !output.status.success() {
+        bail!(
+            "`cargo metadata` failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let metadata: Metadata =
+        serde_json::from_slice(&output.stdout).context("parsing `cargo metadata` output")?;
+
     let mut found = Vec::new();
-    for parent in ["crates", "nodes"] {
-        let parent_dir = root.join(parent);
-        let Ok(entries) = std::fs::read_dir(&parent_dir) else {
-            continue; // nodes/ does not exist until `gitman install` has run
+    for package in metadata.packages {
+        let Some(dir) = package.manifest_path.parent() else {
+            continue;
         };
-        for entry in entries {
-            let dir = entry?.path();
-            let manifest = dir.join("Cargo.toml");
-            if !manifest.is_file() {
-                continue;
-            }
-            if let Some(name) = package_name(&manifest)? {
-                found.push(Package { name, dir });
-            }
-        }
+        found.push(Package {
+            name: package.name,
+            dir: dir.to_path_buf(),
+        });
     }
     found.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(found)
-}
-
-/// The `name` from a `[package]` table, if the manifest has one.
-fn package_name(manifest: &Path) -> Result<Option<String>> {
-    let text = std::fs::read_to_string(manifest)
-        .with_context(|| format!("reading {}", manifest.display()))?;
-    let mut in_package = false;
-    for line in text.lines() {
-        let line = line.trim();
-        if line.starts_with('[') {
-            in_package = line == "[package]";
-            continue;
-        }
-        if !in_package {
-            continue;
-        }
-        if let Some(value) = line.strip_prefix("name") {
-            let value = value.trim_start().trim_start_matches('=').trim();
-            return Ok(Some(value.trim_matches('"').to_string()));
-        }
-    }
-    Ok(None)
-}
-
-/// Dangling symlinks under `nodes/`, which break the workspace glob.
-pub fn broken_links(root: &Path) -> Result<Vec<PathBuf>> {
-    let nodes = root.join("nodes");
-    let Ok(entries) = std::fs::read_dir(&nodes) else {
-        return Ok(Vec::new());
-    };
-    let mut broken = Vec::new();
-    for entry in entries {
-        let path = entry?.path();
-        if !path.exists() {
-            broken.push(path);
-        }
-    }
-    Ok(broken)
 }

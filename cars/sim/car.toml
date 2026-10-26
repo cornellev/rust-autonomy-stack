@@ -3,10 +3,13 @@
 
 name = "sim"
 description = "Desktop stack, no vehicle"
+kind = "sim"
+modes = ["teleop", "autonomous"]
+gpu = false # must also run on MacOS
 
 [env]
 RUST_LOG = "debug"
 
 [[nodes]]
 name = "estimation"
-package = "rust-inekf"
+package = "holdover-ekf"

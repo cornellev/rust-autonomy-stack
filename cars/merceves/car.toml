@@ -8,6 +8,9 @@
 
 name = "merceves"
 description = "MerCEVes autonomous testbed (Jetson)"
+kind = "real"
+modes = ["teleop", "autonomous"]
+gpu = true
 
 [env]
 RUST_LOG = "info"
@@ -22,13 +25,7 @@ install_dir = "/opt/cev"
 
 [[nodes]]
 name = "estimation"
-package = "rust-inekf"
+package = "holdover-ekf"
 
-# ROS 2 / colcon, so it is not a workspace package: cev starts it as a plain
-# command and does not deploy it. Enable once the car has a sourced ROS install.
-[[nodes]]
-name = "planning"
-command = ["ros2", "run", "costmap_planner_rs", "a_star"]
-enabled = false
-
-# Add control, perception and logging here as their repos land in gitman.yml.
+# Add planning, control, perception and logging here as their repos land in
+# crates/cev-nodes/Cargo.toml.

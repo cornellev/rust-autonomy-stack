@@ -1,15 +1,22 @@
 //! `cev` -- orchestration for the CEV autonomy stack.
 //!
-//! The nodes live in their own repositories, pulled in by `gitman` and built as
-//! members of this workspace. The cars live in `cars/`. This binary is the glue:
+//! The nodes live in their own repositories, pulled in as git dependencies of
+//! `crates/cev-nodes` and built with `cargo build -p <node>`.  The cars live in `cars/`. This
+//! binary is the glue:
 //! it reads a car manifest and either runs the stack here or ships it there.
+//WARNING: this should all build together into one systemctl service that can be started by the
+//user, not per package.
 
 mod deploy;
 mod group;
 mod launch;
+mod ui;
+
+use std::process::ExitCode;
 
 use anyhow::Result;
 use cev_config::Car;
+use cev_config::contract::NodeContract;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -47,28 +54,24 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            // `{e:#}` prints the whole anyhow chain on one line: "a: b: c".
+            ui::error(format!("{e:#}"));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<()> {
     let root = group::cwd_root()?;
     let cars_dir = root.join("cars");
 
     match cli.command {
-        Command::Cars => {
-            for name in Car::list(&cars_dir)? {
-                let car = Car::load(&cars_dir, &name)?;
-                println!("{name}  {}", car.description);
-                for node in &car.nodes {
-                    let how = match (node.bin_name(), node.external_argv()) {
-                        (Some(bin), _) => format!("cargo {bin}"),
-                        (None, Some(argv)) => argv.join(" "),
-                        (None, None) => String::new(),
-                    };
-                    let mark = if node.enabled { " " } else { "-" };
-                    println!("  {mark} {:<12} {how}", node.name);
-                }
-            }
-            Ok(())
-        }
+        Command::Cars => cars(&cars_dir),
         Command::Check { car } => check(&root, &cars_dir, car.as_deref()),
         Command::Launch { car, no_build } => {
             let car = Car::load(&cars_dir, &car)?;
@@ -85,23 +88,55 @@ fn main() -> Result<()> {
     }
 }
 
+/// The logo, then every car: its kind, modes and GPU, and the nodes it runs.
+fn cars(cars_dir: &std::path::Path) -> Result<()> {
+    let names = Car::list(cars_dir)?;
+    ui::banner(&format!("autonomy stack · {} car(s)", names.len()));
+
+    for name in names {
+        let car = Car::load(cars_dir, &name)?;
+        let modes: Vec<&str> = car.modes.iter().map(|m| m.name()).collect();
+        let gpu = if car.gpu { "gpu" } else { "cpu only" };
+        anstream::println!(
+            "  {}  {}",
+            ui::car_badge(&car.name),
+            ui::dim(format!(
+                "{} · {} · {gpu}",
+                car.kind.name(),
+                modes.join(", ")
+            ))
+        );
+        if !car.description.is_empty() {
+            anstream::println!("     {}", car.description);
+        }
+        for node in &car.nodes {
+            let how = match (node.bin_name(), node.external_argv()) {
+                (Some(bin), _) => bin.to_string(),
+                (None, Some(argv)) => argv.join(" "),
+                (None, None) => String::new(),
+            };
+            if node.enabled {
+                anstream::println!(
+                    "     {} {} {}",
+                    ui::accent("●"),
+                    ui::strong(format!("{:<12}", node.name)),
+                    how
+                );
+            } else {
+                anstream::println!(
+                    "     {}",
+                    ui::dim(format!("○ {:<12} {how} (disabled)", node.name))
+                );
+            }
+        }
+        anstream::println!();
+    }
+    Ok(())
+}
+
 fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>) -> Result<()> {
     let mut problems = 0;
-
-    for path in group::broken_links(root)? {
-        println!(
-            "broken: {} is a dangling link (rerun `uvx gitman install`)",
-            path.display()
-        );
-        problems += 1;
-    }
-
     let packages = group::packages(root)?;
-    let names: Vec<&str> = packages.iter().map(|p| p.name.as_str()).collect();
-    for package in &packages {
-        let dir = package.dir.strip_prefix(root).unwrap_or(&package.dir);
-        println!("package {:<16} {}", package.name, dir.display());
-    }
 
     let cars = match only {
         Some(name) => vec![name.to_string()],
@@ -109,22 +144,72 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     };
     for name in cars {
         let car = Car::load(cars_dir, &name)?;
-        println!("car {name}: {} node(s)", car.nodes.len());
-        for package in car.cargo_packages() {
-            if !names.contains(&package) {
-                println!(
-                    "  missing: node package `{package}` is not in the workspace \
-                     (is it in gitman.yml, and did you run `uvx gitman install`?)"
-                );
-                problems += 1;
+        ui::status(
+            "Checking",
+            format!("car {name} ({} node(s))", car.nodes.len()),
+        );
+        for wanted in car.cargo_packages() {
+            match packages.iter().find(|p| p.name == wanted) {
+                Some(package) => match NodeContract::load(&package.contract_path()) {
+                    Ok(contract) => {
+                        ui::status("Found", format!("{wanted} {}", contract.path.display()));
+                        for problem in contract.compatibility_problems(&car) {
+                            ui::error(format!("{wanted}: {problem}"));
+                            problems += 1;
+                        }
+                    }
+                    Err(e) => {
+                        ui::error(e);
+                        problems += 1;
+                    }
+                },
+                None => {
+                    ui::error(format!(
+                        "node package `{wanted}` is not resolved \
+                    (is it a dependency in crates/cev-nodes/Cargo.toml?)"
+                    ));
+                    problems += 1;
+                }
             }
         }
     }
 
     if problems == 0 {
-        println!("ok");
+        ui::status("Finished", "no problems");
         Ok(())
     } else {
         anyhow::bail!("{problems} problem(s)")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every package node on every car ships a valid contract that names
+    /// the package that it lives in.
+    #[test]
+    fn every_car_node_has_valid_contract() {
+        let root = group::find_root(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let packages = group::packages(&root).unwrap();
+        let cars_dir = root.join("cars");
+
+        for name in Car::list(&cars_dir).unwrap() {
+            let car = Car::load(&cars_dir, &name).unwrap();
+            for wanted in car.cargo_packages() {
+                let Some(package) = packages.iter().find(|p| p.name == wanted) else {
+                    panic!("car {name}: node package `{wanted}` is not resolved");
+                };
+                let contract = match NodeContract::load(&package.contract_path()) {
+                    Ok(contract) => contract,
+                    Err(e) => panic!("car {name}: {e}"),
+                };
+                let compatibility = contract.compatibility_problems(&car);
+                assert!(
+                    compatibility.is_empty(),
+                    "car {name}: {wanted}: {compatibility:?}"
+                );
+            }
+        }
     }
 }
