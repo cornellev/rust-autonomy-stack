@@ -79,12 +79,33 @@ pub enum Mode {
     Efficiency,
 }
 
+impl Mode {
+    /// The name used in TOML, e.g. `teleop`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Teleop => "teleop",
+            Mode::Autonomous => "autonomous",
+            Mode::Efficiency => "efficiency",
+        }
+    }
+}
+
 /// Whether the stack is driving a simulator or real vehicle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RunKind {
     Sim,
     Real,
+}
+
+impl RunKind {
+    /// The name used in TOML, e.g. `sim`.
+    pub fn name(self) -> &'static str {
+        match self {
+            RunKind::Sim => "sim",
+            RunKind::Real => "real",
+        }
+    }
 }
 
 /// A topic this node subscribes to.
