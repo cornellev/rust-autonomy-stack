@@ -16,8 +16,8 @@ bin = "a_star"
 name = "control"
 package = "pure_pursuit"
 
-# Same binary as the car. --dry-run prints ackermann instead of opening the Pico.
+# Same binary as the car. The dry-run profile prints ackermann instead of opening the Pico.
 [[nodes]]
 name = "teleop"
 package = "teleop"
-args = ["--dry-run"]
+profile = "dry-run"

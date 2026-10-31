@@ -55,6 +55,8 @@ cargo launch sim              # run the stack on this machine
 cargo deploy merceves         # cross-compile, rsync, restart on the car
 ```
 
+A node package may ship a `profiles.toml` beside its `Cargo.toml`. Each table is a named arg list (`[dry-run]` with `args = ["--dry-run"]`). A car selects one with `profile = "dry-run"` instead of copying those flags into `car.toml`. Any `args` on the node are appended after the profile. `cev launch` reads the file from the workspace package. `cev deploy` does not copy it, and does not start the processes.
+
 The reasoning: a car manifest is small declarative data whose schema lives in
 `crates/cev-config` here, so a schema change and the config change it forces are
 one commit rather than a two-repo dance; `sources_locked` in `gitman.yml` and the

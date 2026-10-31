@@ -4,6 +4,9 @@
 //! how they are launched, and where the binaries go when deployed. The manifest
 //! is *deployment* truth only: vehicle geometry, CAN IDs and sensor extrinsics
 //! are hardware truth and have no home in this schema yet.
+//!
+//! A node package may also ship `profiles.toml` beside its `Cargo.toml`. A car
+//! names one of those profiles; the file holds the argv.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -96,6 +99,9 @@ pub struct Node {
     /// External command, argv style. Mutually exclusive with `package`.
     #[serde(default)]
     pub command: Vec<String>,
+    /// Named arg list in the package's `profiles.toml`. Applied before `args`.
+    #[serde(default)]
+    pub profile: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
@@ -112,6 +118,60 @@ fn default_user() -> String {
 }
 fn default_install_dir() -> String {
     "/opt/cev".to_string()
+}
+
+const PROFILES_FILE: &str = "profiles.toml";
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LaunchProfile {
+    #[serde(default)]
+    args: Vec<String>,
+}
+
+/// Args for `name` in `<package_dir>/profiles.toml`.
+///
+/// Cargo does not read this file. Each top-level table is one profile.
+pub fn profile_args(package_dir: &Path, name: &str) -> Result<Vec<String>, ConfigError> {
+    let path = package_dir.join(PROFILES_FILE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
+            return Err(ConfigError::Invalid {
+                path: package_dir.to_path_buf(),
+                message: format!("profile `{name}` is not defined (no {})", path.display()),
+            });
+        }
+        Err(source) => {
+            return Err(ConfigError::Io {
+                path: path.clone(),
+                source,
+            });
+        }
+    };
+    args_in(&text, name, &path)
+}
+
+fn args_in(text: &str, name: &str, path: &Path) -> Result<Vec<String>, ConfigError> {
+    let profiles: BTreeMap<String, LaunchProfile> =
+        toml::from_str(text).map_err(|source| ConfigError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    match profiles.get(name) {
+        Some(profile) => Ok(profile.args.clone()),
+        None => {
+            let defined = if profiles.is_empty() {
+                "none".to_string()
+            } else {
+                profiles.keys().cloned().collect::<Vec<_>>().join(", ")
+            };
+            Err(ConfigError::Invalid {
+                path: path.to_path_buf(),
+                message: format!("no profile `{name}` (defined: {defined})"),
+            })
+        }
+    }
 }
 
 impl Node {
@@ -236,7 +296,74 @@ impl Car {
                     node.name
                 )));
             }
+            if let Some(profile) = &node.profile {
+                if node.package.is_none() {
+                    return Err(invalid(format!(
+                        "node `{}` sets `profile` without `package`",
+                        node.name
+                    )));
+                }
+                if profile.is_empty() {
+                    return Err(invalid(format!(
+                        "node `{}` sets an empty `profile`",
+                        node.name
+                    )));
+                }
+            }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dry_run_profile_args() {
+        let dir = std::env::temp_dir().join(format!("cev-profiles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("profiles.toml"),
+            "[dry-run]\nargs = [\"--dry-run\"]\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            profile_args(&dir, "dry-run").unwrap(),
+            vec!["--dry-run".to_string()]
+        );
+        let missing = profile_args(&dir, "live").unwrap_err().to_string();
+        assert!(missing.contains("live"), "{missing}");
+        assert!(missing.contains("dry-run"), "{missing}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn profile_requires_package() {
+        let root = std::env::temp_dir().join(format!("cev-car-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("sim");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("car.toml"),
+            r#"
+name = "sim"
+
+[[nodes]]
+name = "planner"
+command = ["ros2", "run", "pkg", "node"]
+profile = "dry-run"
+"#,
+        )
+        .unwrap();
+
+        let err = Car::load(&root, "sim").unwrap_err().to_string();
+        assert!(err.contains("profile"), "{err}");
+        assert!(err.contains("package"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

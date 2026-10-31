@@ -153,7 +153,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/virtual-rgbd-sensor
     name: virtual-rgbd-sensor
-    rev: 8454d2f8fa786bda593bad8811077efec85a43c5
+    rev: ad8a3da66c88e4c819321083733f31d443ae21d6
     type: git
     params:
     sparse_paths:
@@ -181,7 +181,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/costmap-planner-rust
     name: costmap-planner-rust
-    rev: b11b750cf55bd00b66de6b7ceede4181a5c987f3
+    rev: 9f9216d5f4416679596242f7cb38ebee3d767971
     type: git
     params:
     sparse_paths:
@@ -195,7 +195,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/pure_pursuit
     name: pure_pursuit
-    rev: 4fd237d8eaba986cb5418f640fe2a17e8fe36f9f
+    rev: d837ee78713c1bee13e941cb3e09b6a89c4f4ff1
     type: git
     params:
     sparse_paths:

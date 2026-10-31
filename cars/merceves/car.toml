@@ -13,8 +13,8 @@ description = "MerCEVes autonomous testbed (Jetson)"
 RUST_LOG = "info"
 
 [deploy]
-host = "merceves.local"
-user = "cev"
+host = "10.52.8.219"
+user = "mini-dos"
 target = "aarch64-unknown-linux-gnu"
 builder = "cross"                 # "cross" (docker) or "cargo" (host linker)
 install_dir = "/opt/cev"
@@ -41,11 +41,11 @@ bin = "a_star"
 name = "control"
 package = "pure_pursuit"
 
-# Prints ackermann from cev/commands/control. --dry-run stays off the Pico until a live test.
+# Prints ackermann from cev/commands/control. The dry-run profile stays off the Pico until a live test.
 [[nodes]]
 name = "teleop"
 package = "teleop"
-args = ["--dry-run"]
+profile = "dry-run"
 
 # SPI IMU on /dev/spidev0.0. Prints samples. Panics if the device is missing,
 # and launch then stops every other node.

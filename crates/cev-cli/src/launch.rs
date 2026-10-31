@@ -19,6 +19,12 @@ pub fn launch(root: &Path, car: &Car, build: bool) -> Result<()> {
         bail!("car `{}` has no enabled nodes", car.name);
     }
 
+    let workspace = crate::group::packages(root)?;
+    let planned: Vec<Vec<String>> = nodes
+        .iter()
+        .map(|node| node_args(node, &workspace))
+        .collect::<Result<_>>()?;
+
     if build {
         let packages = car.cargo_packages();
         if !packages.is_empty() {
@@ -27,8 +33,8 @@ pub fn launch(root: &Path, car: &Car, build: bool) -> Result<()> {
     }
 
     let mut running: Vec<(String, Child)> = Vec::new();
-    for node in &nodes {
-        let mut command = node_command(root, car, node)?;
+    for (node, args) in nodes.iter().zip(&planned) {
+        let mut command = node_command(root, car, node, args)?;
         println!("[cev] start {}: {}", node.name, render(&command));
         let child = command
             .spawn()
@@ -121,28 +127,51 @@ pub fn build_packages(root: &Path, packages: &[&str], target: Option<(&str, &str
     Ok(())
 }
 
-fn node_command(root: &Path, car: &Car, node: &Node) -> Result<Command> {
-    let mut command = match (node.bin_name(), node.external_argv()) {
-        (Some(bin), _) => {
-            let path = root.join("target/release").join(bin);
-            if !path.is_file() {
-                bail!(
-                    "node `{}`: {} not built (run without --no-build)",
-                    node.name,
-                    path.display()
-                );
-            }
-            let mut command = Command::new(path);
-            command.args(&node.args);
-            command
+/// Profile args, then the node's own `args`. No profile means `args` only.
+pub fn node_args(node: &Node, packages: &[crate::group::Package]) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+    if let Some(name) = &node.profile {
+        let Some(package) = node.package.as_deref() else {
+            bail!("node `{}` sets `profile` without `package`", node.name);
+        };
+        let dir = packages
+            .iter()
+            .find(|pkg| pkg.name == package)
+            .map(|pkg| &pkg.dir)
+            .with_context(|| {
+                format!(
+                    "node `{}`: package `{package}` is not in the workspace \
+                     (is it in gitman.yml, and did you run `uvx gitman install`?)",
+                    node.name
+                )
+            })?;
+        args.extend(
+            cev_config::profile_args(dir, name).with_context(|| format!("node `{}`", node.name))?,
+        );
+    }
+    args.extend(node.args.iter().cloned());
+    Ok(args)
+}
+
+fn node_command(root: &Path, car: &Car, node: &Node, args: &[String]) -> Result<Command> {
+    let mut command = if let Some(bin) = node.bin_name() {
+        let path = root.join("target/release").join(bin);
+        if !path.is_file() {
+            bail!(
+                "node `{}`: {} not built (run without --no-build)",
+                node.name,
+                path.display()
+            );
         }
-        (None, Some(argv)) => {
-            let mut command = Command::new(&argv[0]);
-            command.args(&argv[1..]);
-            command
-        }
-        (None, None) => unreachable!("validated at load time"),
+        Command::new(path)
+    } else if let Some(program) = node.command.first() {
+        let mut command = Command::new(program);
+        command.args(&node.command[1..]);
+        command
+    } else {
+        unreachable!("validated at load time")
     };
+    command.args(args);
     command.current_dir(root);
     command.env("CEV_CAR", &car.name);
     command.env("CEV_CAR_DIR", &car.dir);

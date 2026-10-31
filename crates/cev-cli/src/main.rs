@@ -7,6 +7,9 @@
 mod deploy;
 mod group;
 mod launch;
+mod ui;
+
+use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use cev_config::Car;
@@ -49,28 +52,24 @@ enum Command {
     },
 }
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            // `{e:#}` prints the whole anyhow chain on one line: "a: b: c".
+            ui::error(format!("{e:#}"));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<()> {
     let root = group::cwd_root()?;
     let cars_dir = root.join("cars");
 
     match cli.command {
-        Command::Cars => {
-            for name in Car::list(&cars_dir)? {
-                let car = Car::load(&cars_dir, &name)?;
-                println!("{name}  {}", car.description);
-                for node in &car.nodes {
-                    let how = match (node.bin_name(), node.external_argv()) {
-                        (Some(bin), _) => format!("cargo {bin}"),
-                        (None, Some(argv)) => argv.join(" "),
-                        (None, None) => String::new(),
-                    };
-                    let mark = if node.enabled { " " } else { "-" };
-                    println!("  {mark} {:<12} {how}", node.name);
-                }
-            }
-            Ok(())
-        }
+        Command::Cars => cars(&cars_dir),
         Command::Check { car } => check(&root, &cars_dir, car.as_deref()),
         Command::Pull => pull(&root),
         Command::Launch { car, no_build } => {
@@ -86,6 +85,39 @@ fn main() -> Result<()> {
             deploy::deploy(&root, &car, !no_build, dry_run)
         }
     }
+}
+
+/// The logo, then every car and the nodes it runs. Same list as before.
+fn cars(cars_dir: &std::path::Path) -> Result<()> {
+    let names = Car::list(cars_dir)?;
+    ui::banner(&format!("autonomy stack · {} car(s)", names.len()));
+
+    for name in names {
+        let car = Car::load(cars_dir, &name)?;
+        anstream::println!("  {}  {}", ui::car_badge(&car.name), car.description);
+        for node in &car.nodes {
+            let mut how = match (node.bin_name(), node.external_argv()) {
+                (Some(bin), _) => format!("cargo {bin}"),
+                (None, Some(argv)) => argv.join(" "),
+                (None, None) => String::new(),
+            };
+            if let Some(profile) = &node.profile {
+                how.push_str(&format!(" ({profile})"));
+            }
+            if node.enabled {
+                anstream::println!(
+                    "     {} {} {}",
+                    ui::accent("●"),
+                    ui::strong(format!("{:<12}", node.name)),
+                    how
+                );
+            } else {
+                anstream::println!("     {}", ui::dim(format!("○ {:<12} {how}", node.name)));
+            }
+        }
+        anstream::println!();
+    }
+    Ok(())
 }
 
 /// `uvx gitman update` from the group root: tip of each source `rev`, then rewrite
@@ -109,10 +141,10 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     let mut problems = 0;
 
     for path in group::broken_links(root)? {
-        println!(
+        ui::error(format!(
             "broken: {} is a dangling link (rerun `uvx gitman install`)",
             path.display()
-        );
+        ));
         problems += 1;
     }
 
@@ -120,7 +152,7 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     let names: Vec<&str> = packages.iter().map(|p| p.name.as_str()).collect();
     for package in &packages {
         let dir = package.dir.strip_prefix(root).unwrap_or(&package.dir);
-        println!("package {:<16} {}", package.name, dir.display());
+        ui::status("Package", format!("{:<16} {}", package.name, dir.display()));
     }
 
     let cars = match only {
@@ -129,20 +161,38 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
     };
     for name in cars {
         let car = Car::load(cars_dir, &name)?;
-        println!("car {name}: {} node(s)", car.nodes.len());
+        ui::status(
+            "Checking",
+            format!("car {name}: {} node(s)", car.nodes.len()),
+        );
         for package in car.cargo_packages() {
             if !names.contains(&package) {
-                println!(
-                    "  missing: node package `{package}` is not in the workspace \
+                ui::error(format!(
+                    "missing: node package `{package}` is not in the workspace \
                      (is it in gitman.yml, and did you run `uvx gitman install`?)"
-                );
+                ));
+                problems += 1;
+            }
+        }
+        for node in &car.nodes {
+            if node.profile.is_none() {
+                continue;
+            }
+            let Some(package) = node.package.as_deref() else {
+                continue;
+            };
+            if !names.contains(&package) {
+                continue;
+            }
+            if let Err(err) = launch::node_args(node, &packages) {
+                ui::error(format!("{err:#}"));
                 problems += 1;
             }
         }
     }
 
     if problems == 0 {
-        println!("ok");
+        ui::status("Finished", "ok");
         Ok(())
     } else {
         anyhow::bail!("{problems} problem(s)")
