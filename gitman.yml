@@ -11,9 +11,8 @@
 # Clones land in repos/ -- those are ordinary git repos, cd into them and work
 # normally. `links` then expose the Rust packages under nodes/, which is what the
 # Cargo workspace in ./Cargo.toml globs over. Only link a directory that is a
-# Cargo package; anything else breaks the workspace glob. That is why
-# costmap-planner-rust has no `links`: it is a ROS 2 / colcon package and cannot
-# build inside a plain Cargo workspace.
+# Cargo package; anything else breaks the workspace glob. costmap-planner-rust
+# is linked at costmap_planner_rs/ because the repo root is not a package.
 #
 # DO NOT comment anything below this header. `gitman lock` and `gitman update`
 # rewrite this file and keep only the comments above the first source; anything
@@ -65,6 +64,34 @@ sources:
       -
     patches:
       -
+  - repo: https://github.com/cornellev/costmap-planner-rust
+    name: costmap-planner-rust
+    rev: zenoh-impl
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: costmap_planner_rs
+        target: nodes/planning
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/pure_pursuit
+    name: pure_pursuit
+    rev: master
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/control
+    scripts:
+      -
+    patches:
+      -
 groups:
   # `uvx gitman install cargo` pulls only what the workspace build needs.
   - name: cargo
@@ -72,4 +99,77 @@ groups:
       - rust-inekf
       - rust-autonomy-sensors
       - virtual-rgbd-sensor
+      - costmap-planner-rust
+      - pure_pursuit
 default_group: ''
+sources_locked:
+  - repo: https://github.com/cornellev/rust-inekf
+    name: rust-inekf
+    rev: 59324080af72603860335bea29da147cd9fa92cf
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/estimation
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/virtual-rgbd-sensor
+    name: virtual-rgbd-sensor
+    rev: 56694056b2f8510c0fb2e6b57906f35f3c20461c
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/perception
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/rust-autonomy-sensors
+    name: rust-autonomy-sensors
+    rev: a0368852d50cabddadab946c3f6af6e7c94d2f22
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: crates/zed-reader
+        target: nodes/zed-reader
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/costmap-planner-rust
+    name: costmap-planner-rust
+    rev: 5566c2b04b4a67daba6eac89cdc9734623705d02
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: costmap_planner_rs
+        target: nodes/planning
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/pure_pursuit
+    name: pure_pursuit
+    rev: bfdf38b553e709cdde152545815b39cd09ddd398
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/control
+    scripts:
+      -
+    patches:
+      -

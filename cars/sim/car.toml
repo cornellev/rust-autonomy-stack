@@ -8,5 +8,10 @@ description = "Desktop stack, no vehicle"
 RUST_LOG = "debug"
 
 [[nodes]]
-name = "estimation"
-package = "rust-inekf"
+name = "planning"
+package = "costmap_planner_rs"
+bin = "a_star"
+
+[[nodes]]
+name = "control"
+package = "pure_pursuit"

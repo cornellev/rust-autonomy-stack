@@ -39,9 +39,10 @@ Two things fall out of this that are worth knowing:
   cargo test` still works standalone, while `nodes/estimation` is a member of the
   group workspace. One checkout, two valid build contexts.
 - Only link a directory that *is* a Cargo package. A `nodes/` entry without a
-  `Cargo.toml` breaks the workspace glob for everyone. That is why
-  `costmap-planner-rust` (ROS 2 / `rclrs`, built by colcon) is pulled by gitman
-  but not linked; a car runs it as a `command = [...]` node instead.
+  `Cargo.toml` breaks the workspace glob for everyone. `costmap-planner-rust`
+  is linked at `costmap_planner_rs/` because the repo root is not a package.
+  Its `a_star` binary name differs from the package name, so the car manifest
+  sets `bin`.
 
 ## Cars live here, not in a per-car repository
 
@@ -78,10 +79,13 @@ the candidates are a `hardware.toml` beside `car.toml` with a schema in
 | source | role | linked into `nodes/`? |
 | --- | --- | --- |
 | `rust-inekf` | state estimation | yes, `nodes/estimation` |
-| `costmap-planner-rust` | planning | no -- ROS 2 / colcon, run as a `command` node |
+| `virtual-rgbd-sensor` | perception | yes, `nodes/perception` |
+| `rust-autonomy-sensors` | ZED reader | yes, `nodes/zed-reader` (`crates/zed-reader`) |
+| `costmap-planner-rust` | planning | yes, `nodes/planning` (`costmap_planner_rs` on `zenoh-impl`) |
+| `pure_pursuit` | control | yes, `nodes/control` |
 
-Control, perception and logging have no repositories yet. When each one lands,
-add it to `gitman.yml` following the pattern below.
+Logging has no repository yet. When it lands, add it to `gitman.yml` following
+the pattern below.
 
 Note that `gitman lock` and `gitman update` rewrite `gitman.yml` and delete every
 comment except the header, so per-source commentary belongs in this table, not in
