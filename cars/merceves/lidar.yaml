@@ -62,7 +62,7 @@ costmap: # nav2 costmap.yaml names, see src/rslidar/node/costmap_2d.rs
   sensor_y: 0.0
   sensor_z: 0.68                   #  LiDAR mount height above the ground (m)
   height_filter_enabled: true      #  drop returns below min_obstacle_height before segmentation
-  min_obstacle_height: 0.0         #  above the ground (m); lower returns are ground
+  min_obstacle_height: 0.2         #  above the ground (m); lower returns are ground
   max_obstacle_height: 2.0
   obstacle_max_range: 15.0
   obstacle_min_range: 0.2
