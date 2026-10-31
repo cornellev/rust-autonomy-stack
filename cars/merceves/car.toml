@@ -20,15 +20,36 @@ builder = "cross"                 # "cross" (docker) or "cargo" (host linker)
 install_dir = "/opt/cev"
 # restart_cmd = "systemctl --user restart cev.target"
 
+# rust-inekf exits after one print, and launch stops every node when one exits.
 [[nodes]]
 name = "estimation"
 package = "rust-inekf"
-
-# ROS 2 / colcon, so it is not a workspace package: cev starts it as a plain
-# command and does not deploy it. Enable once the car has a sourced ROS install.
-[[nodes]]
-name = "planning"
-command = ["ros2", "run", "costmap_planner_rs", "a_star"]
 enabled = false
 
-# Add control, perception and logging here as their repos land in gitman.yml.
+# Headless RoboSense decoder. Reads lidar.yaml beside this file.
+[[nodes]]
+name = "perception"
+package = "virtual-rgbd-sensor"
+bin = "zenoh_wrapper"
+
+[[nodes]]
+name = "planning"
+package = "costmap_planner_rs"
+bin = "a_star"
+
+[[nodes]]
+name = "control"
+package = "pure_pursuit"
+
+# Prints ackermann from cev/commands/control. --dry-run stays off the Pico until a live test.
+[[nodes]]
+name = "teleop"
+package = "teleop"
+args = ["--dry-run"]
+
+# SPI IMU on /dev/spidev0.0. Prints samples. Panics if the device is missing,
+# and launch then stops every other node.
+[[nodes]]
+name = "imu-gps"
+package = "imu-gps-node"
+enabled = false

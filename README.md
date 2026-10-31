@@ -18,7 +18,7 @@ rust-autonomy-stack/
 │   ├── merceves/car.toml
 │   └── sim/car.toml
 ├── crates/            first-party code that belongs to the group itself
-│   ├── cev-cli/       the `cev` binary: cars, check, launch, deploy
+│   ├── cev-cli/       the `cev` binary: cars, check, launch, deploy, pull
 │   └── cev-config/    the car.toml schema
 ├── .tools/            recursive git helpers across every cloned repo
 ├── repos/             gitman clones land here          (untracked)
@@ -79,10 +79,12 @@ the candidates are a `hardware.toml` beside `car.toml` with a schema in
 | source | role | linked into `nodes/`? |
 | --- | --- | --- |
 | `rust-inekf` | state estimation | yes, `nodes/estimation` |
+| `holdover-ekf` | temporary EKF | yes, `nodes/holdover-ekf` |
 | `virtual-rgbd-sensor` | perception | yes, `nodes/perception` |
 | `rust-autonomy-sensors` | ZED reader | yes, `nodes/zed-reader` (`crates/zed-reader`) |
 | `costmap-planner-rust` | planning | yes, `nodes/planning` (`costmap_planner_rs` on `zenoh-impl`) |
 | `pure_pursuit` | control | yes, `nodes/control` |
+| `urban-concept` | teleop, imu-gps | yes, `nodes/teleop` (`auto/teleop`) and `nodes/imu-gps` (`auto/imu-gps-node`) on `erica/merceves` |
 
 Logging has no repository yet. When it lands, add it to `gitman.yml` following
 the pattern below.

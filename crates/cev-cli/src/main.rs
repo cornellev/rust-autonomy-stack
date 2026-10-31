@@ -8,7 +8,7 @@ mod deploy;
 mod group;
 mod launch;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use cev_config::Car;
 use clap::{Parser, Subcommand};
 
@@ -35,6 +35,8 @@ enum Command {
         #[arg(long)]
         no_build: bool,
     },
+    /// Move every node to the tip of its tracked revision and re-lock.
+    Pull,
     /// Cross-compile a car's nodes and rsync them onto the vehicle.
     Deploy {
         car: String,
@@ -70,6 +72,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Command::Check { car } => check(&root, &cars_dir, car.as_deref()),
+        Command::Pull => pull(&root),
         Command::Launch { car, no_build } => {
             let car = Car::load(&cars_dir, &car)?;
             launch::launch(&root, &car, !no_build)
@@ -83,6 +86,23 @@ fn main() -> Result<()> {
             deploy::deploy(&root, &car, !no_build, dry_run)
         }
     }
+}
+
+/// `uvx gitman update` from the group root: tip of each source `rev`, then rewrite
+/// `sources_locked`. Dirty clones abort the update; this does not pass `--force`.
+fn pull(root: &std::path::Path) -> Result<()> {
+    let mut command = std::process::Command::new("uvx");
+    command.arg("gitman").arg("update").current_dir(root);
+    let rendered = launch::render(&command);
+    println!("[cev] {rendered}");
+    let status = command
+        .status()
+        .with_context(|| format!("running `{rendered}` (is uv installed?)"))?;
+    if !status.success() {
+        anyhow::bail!("`{rendered}` failed: {status}");
+    }
+    println!("[cev] gitman.yml now pins the new commits; commit it to record the stack version");
+    Ok(())
 }
 
 fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>) -> Result<()> {

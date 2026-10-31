@@ -26,6 +26,7 @@ cargo launch sim                 # build + run the stack here, Ctrl-C to stop
 cargo launch merceves --no-build # run what is already in target/release
 cargo deploy merceves --dry-run  # print every command without running it
 cargo deploy merceves            # cross-compile, rsync to the car, restart
+cargo pull                       # tip of each node's tracked rev, then re-lock
 ```
 
 `cargo deploy` and friends are aliases in `.cargo/config.toml` for
@@ -63,6 +64,7 @@ exact commits (`sources_locked`). They do different jobs:
 ```bash
 uvx gitman install     # check out sources_locked -- the reproducible stack
 uvx gitman update      # move to the tip of each rev and rewrite sources_locked
+cargo pull             # same as `uvx gitman update`
 uvx gitman lock        # freeze whatever is currently checked out
 uvx gitman list        # what is checked out right now
 ```
@@ -100,6 +102,7 @@ bump, and it is what tells you what a given car was running.
 - **The `.gitignore` is a whitelist.** Everything is ignored unless explicitly
   unignored, which is what keeps the nested clones from polluting group-level git
   operations. If you add a new top-level file and git ignores it, add a `!` line.
+- **`imu-gps-node` does not compile on macOS.** `linux-embedded-hal` is Linux-only, so a plain `cargo build` at the group root fails here. Deploy still builds it: `cross` targets `aarch64-unknown-linux-gnu`. Other packages: `cargo build --workspace --exclude imu-gps-node`.
 - **`cargo deploy` needs `cross`** unless the car sets `builder = "cargo"`:
   `cargo install cross` (it needs Docker or Podman). With `builder = "cargo"` you
   supply the cross linker yourself via `rustup target add <triple>` and a

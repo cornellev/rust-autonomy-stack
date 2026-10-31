@@ -2,6 +2,7 @@
 #
 #   uvx gitman install     clone/checkout every source at its LOCKED revision
 #   uvx gitman update      move every source to the tip of `rev` and re-lock
+#   cev pull               same as `uvx gitman update`
 #   uvx gitman list        show what is currently checked out
 #
 # `sources` is what we track; `sources_locked` (written by `gitman lock`, at the
@@ -32,6 +33,20 @@ sources:
     links:
       - source: ''
         target: nodes/estimation
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/holdover-ekf
+    name: holdover-ekf
+    rev: main
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/holdover-ekf
     scripts:
       -
     patches:
@@ -92,15 +107,34 @@ sources:
       -
     patches:
       -
+  - repo: https://github.com/cornellev/urban-concept
+    name: urban-concept
+    rev: erica/merceves
+    type: git
+    params:
+    sparse_paths:
+      - auto/teleop
+      - auto/imu-gps-node
+    links:
+      - source: auto/teleop
+        target: nodes/teleop
+      - source: auto/imu-gps-node
+        target: nodes/imu-gps
+    scripts:
+      -
+    patches:
+      -
 groups:
   # `uvx gitman install cargo` pulls only what the workspace build needs.
   - name: cargo
     members:
       - rust-inekf
+      - holdover-ekf
       - rust-autonomy-sensors
       - virtual-rgbd-sensor
       - costmap-planner-rust
       - pure_pursuit
+      - urban-concept
 default_group: ''
 sources_locked:
   - repo: https://github.com/cornellev/rust-inekf
@@ -119,7 +153,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/virtual-rgbd-sensor
     name: virtual-rgbd-sensor
-    rev: 56694056b2f8510c0fb2e6b57906f35f3c20461c
+    rev: 8454d2f8fa786bda593bad8811077efec85a43c5
     type: git
     params:
     sparse_paths:
@@ -147,7 +181,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/costmap-planner-rust
     name: costmap-planner-rust
-    rev: 5566c2b04b4a67daba6eac89cdc9734623705d02
+    rev: b11b750cf55bd00b66de6b7ceede4181a5c987f3
     type: git
     params:
     sparse_paths:
@@ -161,7 +195,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/pure_pursuit
     name: pure_pursuit
-    rev: bfdf38b553e709cdde152545815b39cd09ddd398
+    rev: 4fd237d8eaba986cb5418f640fe2a17e8fe36f9f
     type: git
     params:
     sparse_paths:
@@ -169,6 +203,37 @@ sources_locked:
     links:
       - source: ''
         target: nodes/control
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/holdover-ekf
+    name: holdover-ekf
+    rev: 21ff4270ab281a70bd339c6eee7a323fe30565c7
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/holdover-ekf
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/urban-concept
+    name: urban-concept
+    rev: 19663e5b9d72872c91eae1251b28e3487684ebd3
+    type: git
+    params:
+    sparse_paths:
+      - auto/teleop
+      - auto/imu-gps-node
+    links:
+      - source: auto/teleop
+        target: nodes/teleop
+      - source: auto/imu-gps-node
+        target: nodes/imu-gps
     scripts:
       -
     patches:
