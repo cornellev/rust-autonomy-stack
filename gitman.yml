@@ -223,7 +223,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/urban-concept
     name: urban-concept
-    rev: 19663e5b9d72872c91eae1251b28e3487684ebd3
+    rev: 48a1ae210271a21e6c3812bf38288bacd6def911
     type: git
     params:
     sparse_paths:
