@@ -45,7 +45,7 @@ package = "pure_pursuit"
 [[nodes]]
 name = "teleop"
 package = "teleop"
-profile = "dry-run"
+# profile = "dry-run"
 
 # SPI IMU on /dev/spidev0.0. Prints samples. Panics if the device is missing,
 # and launch then stops every other node.
