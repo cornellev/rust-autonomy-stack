@@ -24,10 +24,14 @@ pub fn cwd_root() -> Result<PathBuf> {
     find_root(&cwd)
 }
 
-/// A Cargo package visible to the workspace build.
+/// A Cargo package on disk under `crates/` or `nodes/`.
+///
+/// `detached` means the manifest has its own `[workspace]` table, so it is not
+/// a member of the group workspace and must be built by manifest path.
 pub struct Package {
     pub name: String,
     pub dir: PathBuf,
+    pub detached: bool,
 }
 
 /// Scan `crates/*` and `nodes/*` for Cargo packages.
@@ -48,8 +52,12 @@ pub fn packages(root: &Path) -> Result<Vec<Package>> {
             if !manifest.is_file() {
                 continue;
             }
-            if let Some(name) = package_name(&manifest)? {
-                found.push(Package { name, dir });
+            if let Some((name, detached)) = package_name(&manifest)? {
+                found.push(Package {
+                    name,
+                    dir,
+                    detached,
+                });
             }
         }
     }
@@ -57,13 +65,19 @@ pub fn packages(root: &Path) -> Result<Vec<Package>> {
     Ok(found)
 }
 
-/// The `name` from a `[package]` table, if the manifest has one.
-fn package_name(manifest: &Path) -> Result<Option<String>> {
+/// The `name` from a `[package]` table, if the manifest has one, and whether
+/// the manifest opts out of a parent workspace with `[workspace]`.
+fn package_name(manifest: &Path) -> Result<Option<(String, bool)>> {
     let text = std::fs::read_to_string(manifest)
         .with_context(|| format!("reading {}", manifest.display()))?;
     let mut in_package = false;
+    let mut name = None;
+    let mut detached = false;
     for line in text.lines() {
         let line = line.trim();
+        if line == "[workspace]" {
+            detached = true;
+        }
         if line.starts_with('[') {
             in_package = line == "[package]";
             continue;
@@ -73,10 +87,10 @@ fn package_name(manifest: &Path) -> Result<Option<String>> {
         }
         if let Some(value) = line.strip_prefix("name") {
             let value = value.trim_start().trim_start_matches('=').trim();
-            return Ok(Some(value.trim_matches('"').to_string()));
+            name = Some(value.trim_matches('"').to_string());
         }
     }
-    Ok(None)
+    Ok(name.map(|name| (name, detached)))
 }
 
 /// Dangling symlinks under `nodes/`, which break the workspace glob.

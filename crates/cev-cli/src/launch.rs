@@ -14,22 +14,20 @@ const GRACE: Duration = Duration::from_secs(5);
 const POLL: Duration = Duration::from_millis(100);
 
 pub fn launch(root: &Path, car: &Car, build: bool) -> Result<()> {
-    let nodes: Vec<&Node> = car.enabled_nodes().collect();
+    let workspace = crate::group::packages(root)?;
+    let present: Vec<&str> = workspace.iter().map(|pkg| pkg.name.as_str()).collect();
+    let nodes = car.runnable(&present);
     if nodes.is_empty() {
         bail!("car `{}` has no enabled nodes", car.name);
     }
 
-    let workspace = crate::group::packages(root)?;
     let planned: Vec<Vec<String>> = nodes
         .iter()
         .map(|node| node_args(node, &workspace))
         .collect::<Result<_>>()?;
 
     if build {
-        let packages = car.cargo_packages();
-        if !packages.is_empty() {
-            build_packages(root, &packages, None)?;
-        }
+        build_car(root, &nodes, &workspace, None, false)?;
     }
 
     let mut running: Vec<(String, Child)> = Vec::new();
@@ -103,12 +101,62 @@ fn shutdown(running: &mut [(String, Child)]) -> Result<()> {
     Ok(())
 }
 
-/// `cargo build --release` for the given packages, optionally cross-compiling.
-pub fn build_packages(root: &Path, packages: &[&str], target: Option<(&str, &str)>) -> Result<()> {
-    let (program, triple) = match target {
-        Some((builder, triple)) => (builder, Some(triple)),
-        None => ("cargo", None),
-    };
+/// Build the cargo nodes that will actually run.
+///
+/// Workspace members go through `cargo build -p`. A package whose manifest has
+/// a `[workspace]` table is built by manifest path into the group `target/`
+/// directory, so launch and deploy still find the binary there.
+pub fn build_car(
+    root: &Path,
+    nodes: &[&Node],
+    workspace: &[crate::group::Package],
+    target: Option<(&str, &str)>,
+    dry_run: bool,
+) -> Result<()> {
+    let mut members: Vec<&str> = Vec::new();
+    let mut detached: Vec<&crate::group::Package> = Vec::new();
+    for node in nodes {
+        let Some(package) = node.package.as_deref() else {
+            continue;
+        };
+        let Some(found) = workspace.iter().find(|pkg| pkg.name == package) else {
+            continue;
+        };
+        if found.detached {
+            if !detached.iter().any(|pkg| pkg.name == found.name) {
+                detached.push(found);
+            }
+        } else if !members.contains(&package) {
+            members.push(package);
+        }
+    }
+
+    if dry_run {
+        let mut names = members;
+        names.extend(detached.iter().map(|pkg| pkg.name.as_str()));
+        if !names.is_empty() {
+            match target {
+                Some((_, triple)) => {
+                    println!("[cev] would build {} for {triple}", names.join(", "))
+                }
+                None => println!("[cev] would build {}", names.join(", ")),
+            }
+        }
+        return Ok(());
+    }
+
+    if !members.is_empty() {
+        build_packages(root, &members, target)?;
+    }
+    for pkg in detached {
+        build_detached(root, &pkg.dir.join("Cargo.toml"), target)?;
+    }
+    Ok(())
+}
+
+/// `cargo build --release` for workspace members, optionally cross-compiling.
+fn build_packages(root: &Path, packages: &[&str], target: Option<(&str, &str)>) -> Result<()> {
+    let (program, triple) = target_program(target);
     let mut command = Command::new(program);
     command.current_dir(root).arg("build").arg("--release");
     if let Some(triple) = triple {
@@ -117,7 +165,35 @@ pub fn build_packages(root: &Path, packages: &[&str], target: Option<(&str, &str
     for package in packages {
         command.arg("--package").arg(package);
     }
-    println!("[cev] {}", render(&command));
+    execute(program, &mut command)
+}
+
+fn build_detached(root: &Path, manifest: &Path, target: Option<(&str, &str)>) -> Result<()> {
+    let (program, triple) = target_program(target);
+    let mut command = Command::new(program);
+    command
+        .current_dir(root)
+        .arg("build")
+        .arg("--release")
+        .arg("--manifest-path")
+        .arg(manifest)
+        .arg("--target-dir")
+        .arg(root.join("target"));
+    if let Some(triple) = triple {
+        command.arg("--target").arg(triple);
+    }
+    execute(program, &mut command)
+}
+
+fn target_program<'a>(target: Option<(&'a str, &'a str)>) -> (&'a str, Option<&'a str>) {
+    match target {
+        Some((builder, triple)) => (builder, Some(triple)),
+        None => ("cargo", None),
+    }
+}
+
+fn execute(program: &str, command: &mut Command) -> Result<()> {
+    println!("[cev] {}", render(command));
     let status = command
         .status()
         .with_context(|| format!("running `{program}` (is it installed and on PATH?)"))?;

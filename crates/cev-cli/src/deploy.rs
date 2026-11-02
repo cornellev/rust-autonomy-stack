@@ -9,7 +9,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use cev_config::{Builder, Car};
 
-use crate::launch::{build_packages, render};
+use crate::launch::{build_car, render};
 
 pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool) -> Result<()> {
     let Some(deploy) = &car.deploy else {
@@ -19,10 +19,12 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool) -> Result<()> 
         );
     };
     let remote = format!("{}@{}", deploy.user, deploy.host);
-    let packages = car.cargo_packages();
+    let workspace = crate::group::packages(root)?;
+    let present: Vec<&str> = workspace.iter().map(|pkg| pkg.name.as_str()).collect();
+    let nodes = car.runnable(&present);
 
-    let external: Vec<&str> = car
-        .enabled_nodes()
+    let external: Vec<&str> = nodes
+        .iter()
         .filter(|node| node.package.is_none())
         .map(|node| node.name.as_str())
         .collect();
@@ -33,24 +35,22 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool) -> Result<()> 
         );
     }
 
-    if build && !packages.is_empty() {
+    if build {
         let builder = match deploy.builder {
             Builder::Cross => "cross",
             Builder::Cargo => "cargo",
         };
-        if dry_run {
-            println!(
-                "[cev] would build {} for {}",
-                packages.join(", "),
-                deploy.target
-            );
-        } else {
-            build_packages(root, &packages, Some((builder, &deploy.target)))?;
-        }
+        build_car(
+            root,
+            &nodes,
+            &workspace,
+            Some((builder, &deploy.target)),
+            dry_run,
+        )?;
     }
 
     let mut binaries = Vec::new();
-    for node in car.enabled_nodes() {
+    for node in &nodes {
         let Some(bin) = node.bin_name() else { continue };
         let path = root
             .join("target")
