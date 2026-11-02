@@ -49,6 +49,9 @@ enum Command {
         /// Print every command without running any of them.
         #[arg(long)]
         dry_run: bool,
+        /// Cross-compile for the car and stop before ssh and rsync.
+        #[arg(long, conflicts_with = "no_build")]
+        pre_build: bool,
     },
 }
 
@@ -80,9 +83,10 @@ fn run(cli: Cli) -> Result<()> {
             car,
             no_build,
             dry_run,
+            pre_build,
         } => {
             let car = Car::load(&cars_dir, &car)?;
-            deploy::deploy(&root, &car, !no_build, dry_run)
+            deploy::deploy(&root, &car, !no_build, dry_run, pre_build)
         }
     }
 }
