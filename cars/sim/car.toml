@@ -27,3 +27,4 @@ profile = "dry-run"
 name = "deadreckoning"
 package = "cev_odometry"
 optional = true
+args = ["--compare"]
