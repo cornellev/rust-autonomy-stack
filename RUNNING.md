@@ -20,13 +20,14 @@ manifest that produces them.
 ## Everyday commands
 
 ```bash
-cargo cars                       # what cars exist and what nodes they run
-cargo cev check                  # dangling links, missing packages, bad manifests
-cargo launch sim                 # build + run the stack here, Ctrl-C to stop
-cargo launch merceves --no-build # run what is already in target/release
-cargo deploy merceves --dry-run  # print every command without running it
-cargo deploy merceves            # cross-compile, rsync to the car, restart
-cargo pull                       # tip of each node's tracked rev, then re-lock
+cargo cars                        # what cars exist and what nodes they run
+cargo cev check                   # dangling links, missing packages, bad manifests
+cargo launch sim                  # build + run the stack here, Ctrl-C to stop
+cargo launch merceves --no-build  # run what is already in target/release
+cargo deploy merceves --dry-run   # print every command without running it
+cargo deploy merceves --pre-build # cross-compile only; do not ssh or rsync
+cargo deploy merceves             # cross-compile, rsync to the car, restart
+cargo pull                        # tip of each node's tracked rev, then re-lock
 ```
 
 `cargo deploy` and friends are aliases in `.cargo/config.toml` for
@@ -128,5 +129,7 @@ For each enabled node with a `package`:
 5. `ssh <user>@<host> <restart_cmd>` if the car sets one.
 
 Every command is printed before it runs, and `--dry-run` prints them all without
-running any. There is no supervision on the car yet: `restart_cmd` is where a
-systemd unit or similar hooks in.
+running any. `--pre-build` stops after the compile, once each release binary is
+on disk; `--dry-run --pre-build` only prints the build line. There is no
+supervision on the car yet: `restart_cmd` is where a systemd unit or similar
+hooks in.

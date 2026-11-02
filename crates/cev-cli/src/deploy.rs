@@ -1,7 +1,8 @@
 //! Pushing a built stack onto a car.
 //!
-//! Deliberately thin: cross-compile, rsync, restart. Everything it does is
-//! printed first, and `--dry-run` prints without running.
+//! Deliberately thin: cross-compile, rsync, restart. `--pre-build` stops after
+//! the compile. Everything it does is printed first, and `--dry-run` prints
+//! without running.
 
 use std::path::Path;
 use std::process::Command;
@@ -11,7 +12,7 @@ use cev_config::{Builder, Car};
 
 use crate::launch::{build_car, render};
 
-pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool) -> Result<()> {
+pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: bool) -> Result<()> {
     let Some(deploy) = &car.deploy else {
         bail!(
             "car `{}` has no [deploy] section; it is launch-only",
@@ -61,6 +62,13 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool) -> Result<()> 
             bail!("{} not built for {}", path.display(), deploy.target);
         }
         binaries.push(path);
+    }
+
+    if pre_build {
+        if !dry_run {
+            println!("[cev] pre-built {} for {}", car.name, deploy.target);
+        }
+        return Ok(());
     }
 
     let bin_dir = format!("{}/bin", deploy.install_dir);
