@@ -53,3 +53,9 @@ package = "teleop"
 name = "imu-gps"
 package = "imu-gps-node"
 enabled = false
+
+# Local-only crate at nodes/deadreckoning. Skipped when that directory is absent.
+[[nodes]]
+name = "deadreckoning"
+package = "cev_odometry"
+optional = true

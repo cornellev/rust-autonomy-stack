@@ -69,7 +69,7 @@ fn run(cli: Cli) -> Result<()> {
     let cars_dir = root.join("cars");
 
     match cli.command {
-        Command::Cars => cars(&cars_dir),
+        Command::Cars => cars(&root, &cars_dir),
         Command::Check { car } => check(&root, &cars_dir, car.as_deref()),
         Command::Pull => pull(&root),
         Command::Launch { car, no_build } => {
@@ -88,7 +88,9 @@ fn run(cli: Cli) -> Result<()> {
 }
 
 /// The logo, then every car and the nodes it runs. Same list as before.
-fn cars(cars_dir: &std::path::Path) -> Result<()> {
+fn cars(root: &std::path::Path, cars_dir: &std::path::Path) -> Result<()> {
+    let packages = group::packages(root)?;
+    let present: Vec<&str> = packages.iter().map(|pkg| pkg.name.as_str()).collect();
     let names = Car::list(cars_dir)?;
     ui::banner(&format!("autonomy stack · {} car(s)", names.len()));
 
@@ -104,7 +106,17 @@ fn cars(cars_dir: &std::path::Path) -> Result<()> {
             if let Some(profile) = &node.profile {
                 how.push_str(&format!(" ({profile})"));
             }
-            if node.enabled {
+            let skipped = node.optional
+                && node
+                    .package
+                    .as_deref()
+                    .is_some_and(|package| !present.contains(&package));
+            if skipped {
+                anstream::println!(
+                    "     {}",
+                    ui::dim(format!("○ {:<12} {how} (skipped)", node.name))
+                );
+            } else if node.enabled {
                 anstream::println!(
                     "     {} {} {}",
                     ui::accent("●"),
@@ -165,14 +177,22 @@ fn check(root: &std::path::Path, cars_dir: &std::path::Path, only: Option<&str>)
             "Checking",
             format!("car {name}: {} node(s)", car.nodes.len()),
         );
-        for package in car.cargo_packages() {
-            if !names.contains(&package) {
-                ui::error(format!(
-                    "missing: node package `{package}` is not in the workspace \
-                     (is it in gitman.yml, and did you run `uvx gitman install`?)"
-                ));
-                problems += 1;
+        for node in car.enabled_nodes() {
+            let Some(package) = node.package.as_deref() else {
+                continue;
+            };
+            if names.contains(&package) {
+                continue;
             }
+            if node.optional {
+                ui::status("Skipped", format!("{} (no package {package})", node.name));
+                continue;
+            }
+            ui::error(format!(
+                "missing: node package `{package}` is not in the workspace \
+                 (is it in gitman.yml, and did you run `uvx gitman install`?)"
+            ));
+            problems += 1;
         }
         for node in &car.nodes {
             if node.profile.is_none() {

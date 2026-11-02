@@ -108,6 +108,9 @@ pub struct Node {
     pub env: BTreeMap<String, String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Skip check, launch, and deploy when `package` is not on disk.
+    #[serde(default)]
+    pub optional: bool,
 }
 
 fn default_true() -> bool {
@@ -241,15 +244,14 @@ impl Car {
         self.nodes.iter().filter(|node| node.enabled)
     }
 
-    /// Cargo packages needed to launch this car.
-    pub fn cargo_packages(&self) -> Vec<&str> {
-        let mut packages: Vec<&str> = self
-            .enabled_nodes()
-            .filter_map(|node| node.package.as_deref())
-            .collect();
-        packages.sort_unstable();
-        packages.dedup();
-        packages
+    /// Enabled nodes, omitting optional packages that are not in `present`.
+    pub fn runnable<'a>(&'a self, present: &[&str]) -> Vec<&'a Node> {
+        self.enabled_nodes()
+            .filter(|node| match node.package.as_deref() {
+                Some(package) if node.optional && !present.contains(&package) => false,
+                _ => true,
+            })
+            .collect()
     }
 
     fn validate(&self, path: &Path) -> Result<(), ConfigError> {
@@ -365,5 +367,48 @@ profile = "dry-run"
         assert!(err.contains("package"), "{err}");
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn node(name: &str, package: &str, optional: bool) -> Node {
+        Node {
+            name: name.to_string(),
+            package: Some(package.to_string()),
+            bin: None,
+            command: Vec::new(),
+            profile: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            enabled: true,
+            optional,
+        }
+    }
+
+    #[test]
+    fn optional_package_runs_only_when_present() {
+        let car = Car {
+            name: "sim".to_string(),
+            description: String::new(),
+            env: BTreeMap::new(),
+            deploy: None,
+            nodes: vec![
+                node("control", "pure_pursuit", false),
+                node("deadreckoning", "cev_odometry", true),
+            ],
+            dir: PathBuf::new(),
+        };
+
+        let absent: Vec<_> = car
+            .runnable(&["pure_pursuit"])
+            .iter()
+            .map(|node| node.name.as_str())
+            .collect();
+        assert_eq!(absent, ["control"]);
+
+        let present: Vec<_> = car
+            .runnable(&["pure_pursuit", "cev_odometry"])
+            .iter()
+            .map(|node| node.name.as_str())
+            .collect();
+        assert_eq!(present, ["control", "deadreckoning"]);
     }
 }

@@ -47,7 +47,14 @@ git push -u origin feature/imu-bias
 
 Builds pick your working tree up immediately -- `nodes/estimation` is a symlink
 to that same directory, so `cargo build` at the group root compiles what you just
-edited. Bulk git operations across every clone:
+edited.
+
+`nodes/deadreckoning` is local-only. It is gitignored, excluded from the workspace,
+and not a gitman source. Cars that set `optional = true` on `cev_odometry` build and
+run it when that directory exists, and skip it when it does not. Do not add it to
+`gitman.yml`.
+
+Bulk git operations across every clone:
 
 ```bash
 .tools/git_recursive.sh fetch --all
