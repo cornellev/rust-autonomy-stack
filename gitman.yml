@@ -115,11 +115,14 @@ sources:
     sparse_paths:
       - auto/teleop
       - auto/imu-gps-node
+      - auto/gamepad
     links:
       - source: auto/teleop
         target: nodes/teleop
       - source: auto/imu-gps-node
         target: nodes/imu-gps
+      - source: auto/gamepad
+        target: nodes/gamepad
     scripts:
       -
     patches:
@@ -195,7 +198,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/pure_pursuit
     name: pure_pursuit
-    rev: e2610eaa8157cb156b6cdb3f3321408d42039a94
+    rev: 127b5b7e178c5d2b1a2f0028d9b9af04d47dff47
     type: git
     params:
     sparse_paths:
@@ -229,11 +232,14 @@ sources_locked:
     sparse_paths:
       - auto/teleop
       - auto/imu-gps-node
+      - auto/gamepad
     links:
       - source: auto/teleop
         target: nodes/teleop
       - source: auto/imu-gps-node
         target: nodes/imu-gps
+      - source: auto/gamepad
+        target: nodes/gamepad
     scripts:
       -
     patches:

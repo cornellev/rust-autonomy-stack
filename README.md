@@ -86,7 +86,7 @@ the candidates are a `hardware.toml` beside `car.toml` with a schema in
 | `rust-autonomy-sensors` | ZED reader | yes, `nodes/zed-reader` (`crates/zed-reader`) |
 | `costmap-planner-rust` | planning | yes, `nodes/planning` (`costmap_planner_rs` on `zenoh-impl`) |
 | `pure_pursuit` | control | yes, `nodes/control` |
-| `urban-concept` | teleop, imu-gps | yes, `nodes/teleop` (`auto/teleop`) and `nodes/imu-gps` (`auto/imu-gps-node`) on `erica/merceves` |
+| `urban-concept` | teleop, imu-gps, gamepad | yes, `nodes/teleop` (`auto/teleop`), `nodes/imu-gps` (`auto/imu-gps-node`), and `nodes/gamepad` (`auto/gamepad`) on `erica/merceves` |
 
 Logging has no repository yet. When it lands, add it to `gitman.yml` following
 the pattern below.

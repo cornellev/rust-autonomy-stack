@@ -1,0 +1,39 @@
+# Gamepad drive on MerCEVes. Same machine as cars/merceves/car.toml.
+# Perception, planning, and control stay off: control publishes the same
+# command key in different units.
+
+name = "teleop"
+description = "Gamepad drive on MerCEVes (Jetson)"
+
+[env]
+RUST_LOG = "info"
+
+[deploy]
+host = "10.52.8.219"
+user = "mini-dos"
+target = "aarch64-unknown-linux-gnu"
+builder = "cross"                 # "cross" (docker) or "cargo" (host linker)
+install_dir = "/opt/cev"
+# restart_cmd = "systemctl --user restart cev.target"
+
+# Left stick steers, right stick drives. Publishes cev/commands/control.
+[[nodes]]
+name = "gamepad"
+package = "gamepad"
+
+# Forwards those commands to the Pico. Dry-run would not publish wheel samples.
+[[nodes]]
+name = "teleop"
+package = "teleop"
+
+# SPI IMU on /dev/spidev0.0. Prints samples. Panics if the device is missing,
+# and launch then stops every other node.
+[[nodes]]
+name = "imu-gps"
+package = "imu-gps-node"
+
+# Local-only crate at nodes/deadreckoning. Skipped when that directory is absent.
+[[nodes]]
+name = "deadreckoning"
+package = "cev_odometry"
+optional = true
