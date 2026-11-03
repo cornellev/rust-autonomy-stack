@@ -363,11 +363,13 @@ fn supervisor(nodes: &[LaunchNode]) -> String {
         bins.push_str(&shell_single_quote(&node.bin));
     }
 
-    // Pieces stay raw bash. Only the bin list, the grace seconds, and the
-    // start blocks are inserted, so braces in the script are not format syntax.
+    // Pieces stay raw bash. Only the bin list and the start blocks are
+    // inserted, so braces in the script are not format syntax.
     let mut script = String::from(
-        r#"# Background jobs ignore SIGINT unless monitor mode is on.
-set -m
+        r#"# No monitor mode. Dropping the tty SIGHUPs this shell, and the shell's
+# exit SIGHUPs the foreground process group only. Monitor mode would put
+# each node in its own group, so the node would keep the lidar port.
+# Background jobs ignore SIGINT, so stop uses SIGKILL.
 if ! command -v flock >/dev/null 2>&1; then
   echo "launch: flock is required" >&2
   exit 1
@@ -400,36 +402,7 @@ stop() {
   local code=$1
   trap '' INT TERM HUP
   local i=0
-  local alive
   while [[ "$i" -lt "${#pids[@]}" ]]; do
-    # set -m makes each node its own process group. Signaling the pid alone
-    # misses grandchildren; the group id is the node's pid.
-    kill -INT -- "-${pids[$i]}" 2>/dev/null || true
-    kill -INT "${pids[$i]}" 2>/dev/null || true
-    i=$((i + 1))
-  done
-  local deadline=$((SECONDS + "#,
-    );
-    script.push_str(&GRACE.as_secs().to_string());
-    script.push_str(
-        r#"))
-  while [[ "$SECONDS" -lt "$deadline" ]]; do
-    alive=0
-    i=0
-    while [[ "$i" -lt "${#pids[@]}" ]]; do
-      if kill -0 "${pids[$i]}" 2>/dev/null; then
-        alive=1
-      fi
-      i=$((i + 1))
-    done
-    if [[ "$alive" -eq 0 ]]; then
-      exit "$code"
-    fi
-    sleep 0.1
-  done
-  i=0
-  while [[ "$i" -lt "${#pids[@]}" ]]; do
-    kill -KILL -- "-${pids[$i]}" 2>/dev/null || true
     kill -KILL "${pids[$i]}" 2>/dev/null || true
     i=$((i + 1))
   done
@@ -489,8 +462,8 @@ fn start_block(node: &LaunchNode) -> String {
 /// Stop the stack recorded in `<install_dir>/bin/launch.pid`.
 ///
 /// Prints `launch: not running` and exits 0 when nothing is alive. Otherwise
-/// SIGINT the supervisor and its children, then SIGKILL after the same grace
-/// `stop` uses.
+/// SIGINT the supervisor, which SIGKILLs its nodes, then SIGKILL anything
+/// still alive after the grace period.
 pub fn render_kill_script(install_dir: &str) -> String {
     let pidfile = shell_single_quote(&format!("{install_dir}/bin/launch.pid"));
     let mut script = format!("pidfile={pidfile}\n");
@@ -576,7 +549,8 @@ mod tests {
         assert!(script.contains(&export_line("MSG", "it's fine")));
         assert!(script.contains("exec \"$BIN\"/'zenoh_wrapper' '--note' 'a b'\n"));
         assert!(script.contains("flock -n 9"));
-        assert!(script.contains(&format!("SECONDS + {}", GRACE.as_secs())));
+        assert!(script.contains("kill -KILL"));
+        assert!(!script.contains("set -m"));
         assert_eq!(script_car_stamp(&script), Some("merceves"));
         assert_eq!(script_car_stamp("no stamp\n"), None);
         bash_syntax(&script);
@@ -739,8 +713,6 @@ optional = true
         let script = render_launch_script("merceves", "/opt/cev", &BTreeMap::new(), &nodes);
         let launch = write_script(&bin.join("launch"), &script);
         let mut session = Session::spawn(&launch, &flock_stub(&tmp.path.join("stub")));
-        // SIGINT should reap the sleeper. The 5s KILL fallback is not this test;
-        // a 3s cap fails the run if children are still ignoring SIGINT.
         let status = session.wait_timeout(Duration::from_secs(3));
         assert!(!status.success(), "{}", session.output());
         let pid = std::fs::read_to_string(&pidfile)
@@ -753,6 +725,58 @@ optional = true
             .unwrap()
             .success();
         assert!(!alive, "sleeper {pid} still running\n{}", session.output());
+    }
+
+    #[test]
+    fn dropped_tty_signals_the_node() {
+        // Ignores SIGINT, like a background job, and holds a fifo open so the
+        // test can see it die even if the stopped supervisor never reaps it.
+        // SIGSTOP the supervisor first: its trap must not be what kills the node.
+        let running = Running::start_with(
+            "pgrp",
+            "#!/bin/bash\ntrap '' INT\necho $$ > \"$1\"\nmkfifo \"$1.fifo\"\nexec 3>\"$1.fifo\"\nexec sleep 30\n",
+        );
+        let launch_pid =
+            std::fs::read_to_string(running.tmp.path.join("bin/launch.pid")).unwrap();
+        let sleeper = std::fs::read_to_string(&running.sleeper_pid).unwrap();
+        let launch_pid = launch_pid.trim();
+        let sleeper_pid = sleeper.trim();
+        assert_eq!(
+            pgid(launch_pid),
+            pgid(sleeper_pid),
+            "node left the foreground process group"
+        );
+        let fifo = format!("{}.fifo", running.sleeper_pid.display());
+        let start = Instant::now();
+        while !std::path::Path::new(&fifo).exists() {
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "sleeper never created {fifo}"
+            );
+            std::thread::sleep(POLL);
+        }
+        let reader = std::fs::File::open(&fifo).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let stopped = Command::new("kill")
+            .args(["-STOP", launch_pid])
+            .status()
+            .unwrap();
+        assert!(stopped.success(), "SIGSTOP supervisor");
+        let hungup = Command::new("kill")
+            .args(["-HUP", &format!("-{launch_pid}")])
+            .status()
+            .unwrap();
+        assert!(hungup.success(), "SIGHUP the foreground group");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut reader = reader;
+            let mut buf = [0u8; 1];
+            let n = std::io::Read::read(&mut reader, &mut buf).unwrap_or(1);
+            let _ = tx.send(n);
+        });
+        let n = rx.recv_timeout(Duration::from_secs(2)).unwrap_or(1);
+        assert_eq!(n, 0, "sleeper {sleeper_pid} survived a tty hangup");
+        let _ = Command::new("kill").args(["-KILL", launch_pid]).status();
     }
 
     #[test]
@@ -801,6 +825,13 @@ optional = true
         assert!(stderr.contains("not running"), "{stderr}");
     }
 
+    fn pgid(pid: &str) -> libc::pid_t {
+        let pid: libc::pid_t = pid.trim().parse().unwrap();
+        let pgid = unsafe { libc::getpgid(pid) };
+        assert!(pgid > 0, "getpgid {pid}");
+        pgid
+    }
+
     fn process_alive(pid: &str) -> bool {
         Command::new("kill")
             .args(["-0", pid.trim()])
@@ -819,15 +850,16 @@ optional = true
 
     impl Running {
         fn start(label: &str) -> Self {
+            Self::start_with(label, "#!/bin/bash\necho $$ > \"$1\"\nexec sleep 30\n")
+        }
+
+        fn start_with(label: &str, sleeper: &str) -> Self {
             let tmp = Scratch::new(label);
             let bin = tmp.path.join("bin");
             std::fs::create_dir_all(&bin).unwrap();
             std::fs::create_dir_all(tmp.path.join("config")).unwrap();
             let sleeper_pid = tmp.path.join("sleeper.pid");
-            write_exe(
-                &bin.join("sleeper"),
-                "#!/bin/bash\necho $$ > \"$1\"\nexec sleep 30\n",
-            );
+            write_exe(&bin.join("sleeper"), sleeper);
             let nodes = vec![LaunchNode {
                 name: "sleeper".to_string(),
                 bin: "sleeper".to_string(),
