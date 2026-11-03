@@ -1,8 +1,8 @@
 //! Pushing a built stack onto a car.
 //!
-//! Deliberately thin: cross-compile, rsync, restart. `--pre-build` stops after
-//! the compile. Everything it does is printed first, and `--dry-run` prints
-//! without running.
+//! Deliberately thin: cross-compile, rsync the binaries and a launch script,
+//! restart. `--pre-build` stops after the compile. Everything it does is printed
+//! first, and `--dry-run` prints without running.
 
 use std::path::Path;
 use std::process::Command;
@@ -10,7 +10,9 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use cev_config::{Builder, Car};
 
-use crate::launch::{build_car, render};
+use crate::launch::{
+    LaunchNode, build_car, launch_nodes, render, render_launch_script, script_car_stamp,
+};
 
 pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: bool) -> Result<()> {
     let Some(deploy) = &car.deploy else {
@@ -71,6 +73,10 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: boo
         return Ok(());
     }
 
+    // Resolve profiles before any ssh. A missing profile fails the deploy
+    // instead of shipping binaries the car cannot start.
+    let launching = launch_nodes(car, &workspace)?;
+
     let bin_dir = format!("{}/bin", deploy.install_dir);
     let config_dir = format!("{}/config", deploy.install_dir);
 
@@ -87,6 +93,8 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: boo
         rsync.arg(format!("{remote}:{bin_dir}/"));
         run(rsync, dry_run)?;
     }
+
+    install_launch_script(car, &launching, &remote, &deploy.install_dir, dry_run)?;
 
     // Trailing slash on the source: copy the contents of cars/<name>/, not the
     // directory itself. --delete so a removed config does not linger on the car.
@@ -111,6 +119,54 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: boo
         );
     }
     Ok(())
+}
+
+fn install_launch_script(
+    car: &Car,
+    nodes: &[LaunchNode],
+    remote: &str,
+    install_dir: &str,
+    dry_run: bool,
+) -> Result<()> {
+    let dest = format!("{install_dir}/bin/launch");
+    println!("[cev] launch script {dest}");
+    if nodes.is_empty() {
+        println!("[cev]   (no cargo nodes)");
+    }
+    for node in nodes {
+        if node.args.is_empty() {
+            println!("[cev]   {}: {}", node.name, node.bin);
+        } else {
+            println!(
+                "[cev]   {}: {} {}",
+                node.name,
+                node.bin,
+                node.args.join(" ")
+            );
+        }
+    }
+
+    let script = render_launch_script(&car.name, install_dir, &car.env, nodes);
+    if script_car_stamp(&script) != Some(car.name.as_str()) {
+        bail!("launch script for `{}` is missing its car stamp", car.name);
+    }
+
+    let path = std::env::temp_dir().join(format!("cev-launch-{}-{}", car.name, std::process::id()));
+    let result = (|| -> Result<()> {
+        std::fs::write(&path, &script).with_context(|| format!("writing {}", path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&path)?.permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&path, perms)?;
+        }
+        let mut rsync = Command::new("rsync");
+        rsync.arg("-a").arg(&path).arg(format!("{remote}:{dest}"));
+        run(rsync, dry_run)
+    })();
+    let _ = std::fs::remove_file(&path);
+    result
 }
 
 fn run(mut command: Command, dry_run: bool) -> Result<()> {
