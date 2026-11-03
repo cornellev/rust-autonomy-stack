@@ -194,6 +194,10 @@ fn target_program<'a>(target: Option<(&'a str, &'a str)>) -> (&'a str, Option<&'
 }
 
 fn execute(program: &str, command: &mut Command) -> Result<()> {
+    if program == "cross" {
+        // cross 0.2.5 images are linux/amd64. Docker on Apple Silicon otherwise picks arm64.
+        command.env("DOCKER_DEFAULT_PLATFORM", "linux/amd64");
+    }
     println!("[cev] {}", render(command));
     let status = command
         .status()
