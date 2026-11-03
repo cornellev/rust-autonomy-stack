@@ -12,6 +12,7 @@ use cev_config::{Builder, Car};
 
 use crate::launch::{
     LaunchNode, build_car, launch_nodes, render, render_launch_script, script_car_stamp,
+    shell_single_quote,
 };
 
 pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: bool) -> Result<()> {
@@ -121,6 +122,59 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: boo
     Ok(())
 }
 
+pub fn remote_launch(car: &Car) -> Result<()> {
+    let Some(deploy) = &car.deploy else {
+        bail!(
+            "car `{}` has no [deploy] section; it is launch-only",
+            car.name
+        );
+    };
+    let remote = format!("{}@{}", deploy.user, deploy.host);
+    let script = format!("{}/bin/launch", deploy.install_dir);
+    let quoted = shell_single_quote(&script);
+
+    let check = Command::new("ssh")
+        .arg(&remote)
+        .arg(format!("head -n 5 {quoted}"))
+        .output()
+        .with_context(|| format!("reading {script} on {remote}"))?;
+    if !check.status.success() {
+        let stderr = String::from_utf8_lossy(&check.stderr);
+        let stderr = stderr.trim();
+        let detail = if stderr.is_empty() {
+            String::new()
+        } else {
+            format!(": {stderr}")
+        };
+        bail!(
+            "no launch script for {} at {script} (deploy {} first){detail}",
+            car.name,
+            car.name
+        );
+    }
+    let stdout = String::from_utf8_lossy(&check.stdout);
+    if let Some(message) = installed_car_error(&car.name, &script, &stdout) {
+        bail!(message);
+    }
+
+    let mut ssh = Command::new("ssh");
+    ssh.arg("-t").arg(&remote).arg(quoted);
+    run(ssh, false)
+}
+
+/// `None` when `stdout` is the launch script for `car`.
+fn installed_car_error(car: &str, script: &str, stdout: &str) -> Option<String> {
+    match script_car_stamp(stdout) {
+        Some(name) if name == car => None,
+        Some(name) => Some(format!(
+            "installed launch is for `{name}`; deploy `{car}` first"
+        )),
+        None => Some(format!(
+            "no launch script for {car} at {script} (deploy {car} first)"
+        )),
+    }
+}
+
 fn install_launch_script(
     car: &Car,
     nodes: &[LaunchNode],
@@ -183,4 +237,23 @@ fn run(mut command: Command, dry_run: bool) -> Result<()> {
         bail!("`{rendered}` failed: {status}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refuses_a_script_for_another_car() {
+        let text = "#!/bin/bash\n# cev-car: teleop\n";
+        let wrong = installed_car_error("merceves", "/opt/cev/bin/launch", text).unwrap();
+        assert!(wrong.contains("teleop"), "{wrong}");
+        assert!(wrong.contains("deploy `merceves`"), "{wrong}");
+        assert!(installed_car_error("teleop", "/opt/cev/bin/launch", text).is_none());
+
+        let missing =
+            installed_car_error("merceves", "/opt/cev/bin/launch", "#!/bin/bash\n").unwrap();
+        assert!(missing.contains("no launch script"), "{missing}");
+        assert!(missing.contains("/opt/cev/bin/launch"), "{missing}");
+    }
 }

@@ -26,7 +26,8 @@ cargo launch sim                  # build + run the stack here, Ctrl-C to stop
 cargo launch merceves --no-build  # run what is already in target/release
 cargo deploy merceves --dry-run   # print every command without running it
 cargo deploy merceves --pre-build # cross-compile only; do not ssh or rsync
-cargo deploy merceves             # cross-compile, rsync to the car, restart
+cargo deploy merceves             # cross-compile, rsync binaries and bin/launch
+cargo cev remote launch merceves  # ssh to the car and run <install_dir>/bin/launch
 cargo pull                        # tip of each node's tracked rev, then re-lock
 ```
 
@@ -125,11 +126,18 @@ For each enabled node with a `package`:
 1. `cross build --release --target <triple> -p <package>` (or `cargo`),
 2. `ssh <user>@<host> mkdir -p <install_dir>/{bin,config}`,
 3. `rsync` the binaries to `<install_dir>/bin/`,
-4. `rsync --delete cars/<car>/ ` to `<install_dir>/config/`,
-5. `ssh <user>@<host> <restart_cmd>` if the car sets one.
+4. `rsync` `<install_dir>/bin/launch`, the script that starts the enabled cargo nodes with profile args baked in,
+5. `rsync --delete cars/<car>/ ` to `<install_dir>/config/`,
+6. `ssh <user>@<host> <restart_cmd>` if the car sets one.
 
 Every command is printed before it runs, and `--dry-run` prints them all without
 running any. `--pre-build` stops after the compile, once each release binary is
-on disk; `--dry-run --pre-build` only prints the build line. There is no
-supervision on the car yet: `restart_cmd` is where a systemd unit or similar
-hooks in.
+on disk; `--dry-run --pre-build` only prints the build line. Deploy installs the
+launch script and does not start it. `cargo cev remote launch <car>` reads the
+`# cev-car:` stamp, then runs the script in the foreground over `ssh -t`, so
+Ctrl-C and a dropped connection stop the stack. On the car, run
+`<install_dir>/bin/launch` (`/opt/cev/bin/launch` for MerCEVes and teleop). One
+node exiting stops the rest, and a second start exits while that stack holds
+the lock. Those two cars share `/opt/cev`, so the stamp has to match the car
+you name; deploy that car again to switch. The car needs `bash` and `flock`.
+`restart_cmd` still runs afterward when the manifest sets one.
