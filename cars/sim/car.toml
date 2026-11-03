@@ -7,6 +7,12 @@ description = "Desktop stack, no vehicle"
 [env]
 RUST_LOG = "debug"
 
+# Headless RoboSense decoder. Reads lidar.yaml beside this file.
+[[nodes]]
+name = "perception"
+package = "virtual-rgbd-sensor"
+bin = "zenoh_wrapper"
+
 [[nodes]]
 name = "planning"
 package = "costmap_planner_rs"
@@ -27,4 +33,3 @@ profile = "dry-run"
 name = "deadreckoning"
 package = "cev_odometry"
 optional = true
-args = ["--compare"]

@@ -27,6 +27,8 @@
 # First-party, in-tree code
 !crates
 !crates/**
+!scripts/
+!scripts/fake_goal.py
 !cars
 !cars/**
 

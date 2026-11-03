@@ -184,7 +184,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/costmap-planner-rust
     name: costmap-planner-rust
-    rev: 8a5f43da64e926fc7669215452cb2e1ee32746fe
+    rev: 3947656764a915430774c16c82b71a8227e9b65e
     type: git
     params:
     sparse_paths:
@@ -198,7 +198,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/pure_pursuit
     name: pure_pursuit
-    rev: 127b5b7e178c5d2b1a2f0028d9b9af04d47dff47
+    rev: e989611f443f281b53b2fc8fe6e57e800f6d2866
     type: git
     params:
     sparse_paths:
@@ -226,7 +226,7 @@ sources_locked:
       -
   - repo: https://github.com/cornellev/urban-concept
     name: urban-concept
-    rev: 2832e638fee9b463d737b8ebe6a1e9d55e325949
+    rev: 22848330f49d67afa9f2f141f4eee4734838d319
     type: git
     params:
     sparse_paths:
