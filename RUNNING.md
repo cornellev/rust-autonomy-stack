@@ -34,6 +34,23 @@ cargo pull                        # tip of each node's tracked rev, then re-lock
 `cargo run -p cev-cli -- <subcommand>`; `cev` works from anywhere inside the
 group, including from inside a node clone.
 
+## October 31 closed loop
+
+The simulator page has to be open on `oct-31-testing` before the bridge starts,
+because the bridge refuses to run until the orchestrator has the sim's message
+schemas. With the orchestrator and the sim dev server already up:
+
+```bash
+scripts/oct31_closed_loop.sh
+```
+
+That starts the oct-31 bridge, `cargo launch sim`, and `scripts/fake_goal.py`.
+Start the episode in the browser after the stack prints its nodes. Pass looks
+like this: the global grid updates about once a second and lines up with the
+map, A* publishes trajectories, the car stops within 1 m of the goal 10 m
+ahead, and `cev/localization/pose` stays close to `cev/sim/truth/pose`. If the
+Zenoh peers never see each other, start `zenohd` on this machine and rerun.
+
 ## Working on a node
 
 The clone in `repos/<name>` is a normal git repository. Branch, commit and push

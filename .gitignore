@@ -29,6 +29,7 @@
 !crates/**
 !scripts/
 !scripts/fake_goal.py
+!scripts/oct31_closed_loop.sh
 !cars
 !cars/**
 
