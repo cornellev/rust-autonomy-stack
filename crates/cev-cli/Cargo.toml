@@ -17,3 +17,4 @@ anstyle.workspace = true
 clap.workspace = true
 cev-config.workspace = true
 ctrlc.workspace = true
+libc = "0.2"

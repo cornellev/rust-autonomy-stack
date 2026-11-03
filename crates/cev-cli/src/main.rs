@@ -2,7 +2,8 @@
 //!
 //! The nodes live in their own repositories, pulled in by `gitman` and built as
 //! members of this workspace. The cars live in `cars/`. This binary is the glue:
-//! it reads a car manifest and either runs the stack here or ships it there.
+//! it reads a car manifest and either runs the stack here, ships it, or starts
+//! the copy already on the car.
 
 mod deploy;
 mod group;
@@ -53,6 +54,19 @@ enum Command {
         #[arg(long, conflicts_with = "no_build")]
         pre_build: bool,
     },
+    /// Run the launch script already installed on the car.
+    Remote {
+        #[command(subcommand)]
+        command: RemoteCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum RemoteCommand {
+    /// Start the deployed stack on the car and wait until it stops.
+    Launch { car: String },
+    /// Stop the deployed stack on the car if it is running.
+    Kill { car: String },
 }
 
 fn main() -> ExitCode {
@@ -88,6 +102,16 @@ fn run(cli: Cli) -> Result<()> {
             let car = Car::load(&cars_dir, &car)?;
             deploy::deploy(&root, &car, !no_build, dry_run, pre_build)
         }
+        Command::Remote { command } => match command {
+            RemoteCommand::Launch { car } => {
+                let car = Car::load(&cars_dir, &car)?;
+                deploy::remote_launch(&car)
+            }
+            RemoteCommand::Kill { car } => {
+                let car = Car::load(&cars_dir, &car)?;
+                deploy::remote_kill(&car)
+            }
+        },
     }
 }
 
