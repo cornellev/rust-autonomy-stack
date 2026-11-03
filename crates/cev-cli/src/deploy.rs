@@ -5,14 +5,14 @@
 //! first, and `--dry-run` prints without running.
 
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 
 use anyhow::{Context, Result, bail};
 use cev_config::{Builder, Car};
 
 use crate::launch::{
-    LaunchNode, build_car, launch_nodes, render, render_launch_script, script_car_stamp,
-    shell_single_quote,
+    LaunchNode, build_car, launch_nodes, render, render_kill_script, render_launch_script,
+    script_car_stamp, shell_single_quote,
 };
 
 pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: bool) -> Result<()> {
@@ -123,6 +123,35 @@ pub fn deploy(root: &Path, car: &Car, build: bool, dry_run: bool, pre_build: boo
 }
 
 pub fn remote_launch(car: &Car) -> Result<()> {
+    let installed = installed(car)?;
+    let mut ssh = Command::new("ssh");
+    ssh.arg("-t")
+        .arg(&installed.remote)
+        .arg(format!("exec {}", shell_single_quote(&installed.script)));
+    // 129/130/143: the script caught HUP/INT/TERM and stopped the stack.
+    let status = ssh_in_foreground(ssh)?;
+    if status.success() || matches!(status.code(), Some(129 | 130 | 143)) {
+        return Ok(());
+    }
+    bail!("remote launch failed: {status}")
+}
+
+pub fn remote_kill(car: &Car) -> Result<()> {
+    let installed = installed(car)?;
+    let body = render_kill_script(&installed.install_dir);
+    let mut ssh = Command::new("ssh");
+    ssh.arg(&installed.remote)
+        .arg(format!("bash -c {}", shell_single_quote(&body)));
+    run(ssh, false)
+}
+
+struct Installed {
+    remote: String,
+    script: String,
+    install_dir: String,
+}
+
+fn installed(car: &Car) -> Result<Installed> {
     let Some(deploy) = &car.deploy else {
         bail!(
             "car `{}` has no [deploy] section; it is launch-only",
@@ -156,10 +185,70 @@ pub fn remote_launch(car: &Car) -> Result<()> {
     if let Some(message) = installed_car_error(&car.name, &script, &stdout) {
         bail!(message);
     }
+    Ok(Installed {
+        remote,
+        script,
+        install_dir: deploy.install_dir.clone(),
+    })
+}
 
-    let mut ssh = Command::new("ssh");
-    ssh.arg("-t").arg(&remote).arg(quoted);
-    run(ssh, false)
+/// Give ssh the terminal, so Ctrl-C is delivered to the remote script instead
+/// of killing the local `cargo`/`cev` process group and dropping the session.
+fn ssh_in_foreground(mut command: Command) -> Result<ExitStatus> {
+    use std::os::unix::process::CommandExt;
+
+    let tty = libc::STDIN_FILENO;
+    let previous = unsafe { libc::tcgetpgrp(tty) };
+    if previous < 0 {
+        let rendered = render(&command);
+        println!("[cev] {rendered}");
+        return command
+            .status()
+            .with_context(|| format!("running `{rendered}`"));
+    }
+
+    unsafe {
+        command.pre_exec(|| {
+            let pid = libc::getpid();
+            if libc::setpgid(0, pid) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let rendered = render(&command);
+    println!("[cev] {rendered}");
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("running `{rendered}`"))?;
+    let pid = child.id() as libc::pid_t;
+    // Restores the caller's foreground group even if waiting on ssh panics.
+    let _restore = RestoreTty { tty, previous };
+    unsafe {
+        libc::setpgid(pid, pid);
+        // Ignore these only in this process, after spawn, so ssh still receives
+        // SIGINT and we are not stopped by SIGTTOU while switching groups.
+        libc::signal(libc::SIGINT, libc::SIG_IGN);
+        libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+        libc::tcsetpgrp(tty, pid);
+    }
+    child
+        .wait()
+        .with_context(|| format!("waiting for `{rendered}`"))
+}
+
+struct RestoreTty {
+    tty: i32,
+    previous: libc::pid_t,
+}
+
+impl Drop for RestoreTty {
+    fn drop(&mut self) {
+        unsafe {
+            libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+            libc::tcsetpgrp(self.tty, self.previous);
+        }
+    }
 }
 
 /// `None` when `stdout` is the launch script for `car`.

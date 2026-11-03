@@ -65,6 +65,8 @@ enum Command {
 enum RemoteCommand {
     /// Start the deployed stack on the car and wait until it stops.
     Launch { car: String },
+    /// Stop the deployed stack on the car if it is running.
+    Kill { car: String },
 }
 
 fn main() -> ExitCode {
@@ -104,6 +106,10 @@ fn run(cli: Cli) -> Result<()> {
             RemoteCommand::Launch { car } => {
                 let car = Car::load(&cars_dir, &car)?;
                 deploy::remote_launch(&car)
+            }
+            RemoteCommand::Kill { car } => {
+                let car = Car::load(&cars_dir, &car)?;
+                deploy::remote_kill(&car)
             }
         },
     }

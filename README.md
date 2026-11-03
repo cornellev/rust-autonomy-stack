@@ -54,9 +54,10 @@ run time:
 cargo launch sim                   # run the stack on this machine
 cargo deploy merceves              # cross-compile, rsync binaries and bin/launch
 cargo cev remote launch merceves   # run that script on the car
+cargo cev remote kill merceves     # stop it if it is still running
 ```
 
-A node package may ship a `profiles.toml` beside its `Cargo.toml`. Each table is a named arg list (`[dry-run]` with `args = ["--dry-run"]`). A car selects one with `profile = "dry-run"` instead of copying those flags into `car.toml`. Any `args` on the node are appended after the profile. `cev launch` reads the file from the workspace package. `cev deploy` does not copy it. It writes `<install_dir>/bin/launch` with those args baked in, and does not start the stack. `cargo cev remote launch <car>` runs that script on the car. The same path is what you run when you are logged in there.
+A node package may ship a `profiles.toml` beside its `Cargo.toml`. Each table is a named arg list (`[dry-run]` with `args = ["--dry-run"]`). A car selects one with `profile = "dry-run"` instead of copying those flags into `car.toml`. Any `args` on the node are appended after the profile. `cev launch` reads the file from the workspace package. `cev deploy` does not copy it. It writes `<install_dir>/bin/launch` with those args baked in, and does not start the stack. `cargo cev remote launch <car>` runs that script on the car. Ctrl-C stops the nodes. `cargo cev remote kill <car>` stops them if the ssh session is already gone. The same path is what you run when you are logged in there.
 
 The reasoning: a car manifest is small declarative data whose schema lives in
 `crates/cev-config` here, so a schema change and the config change it forces are

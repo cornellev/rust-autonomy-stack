@@ -28,6 +28,7 @@ cargo deploy merceves --dry-run   # print every command without running it
 cargo deploy merceves --pre-build # cross-compile only; do not ssh or rsync
 cargo deploy merceves             # cross-compile, rsync binaries and bin/launch
 cargo cev remote launch merceves  # ssh to the car and run <install_dir>/bin/launch
+cargo cev remote kill merceves    # stop that stack if it is still running
 cargo pull                        # tip of each node's tracked rev, then re-lock
 ```
 
@@ -134,8 +135,10 @@ Every command is printed before it runs, and `--dry-run` prints them all without
 running any. `--pre-build` stops after the compile, once each release binary is
 on disk; `--dry-run --pre-build` only prints the build line. Deploy installs the
 launch script and does not start it. `cargo cev remote launch <car>` reads the
-`# cev-car:` stamp, then runs the script in the foreground over `ssh -t`, so
-Ctrl-C and a dropped connection stop the stack. On the car, run
+`# cev-car:` stamp, then runs the script in the foreground over `ssh -t`.
+Ctrl-C and a dropped connection stop the nodes, not only the ssh session.
+`cargo cev remote kill <car>` does the same when you are no longer attached.
+On the car, run
 `<install_dir>/bin/launch` (`/opt/cev/bin/launch` for MerCEVes and teleop). One
 node exiting stops the rest, and a second start exits while that stack holds
 the lock. Those two cars share `/opt/cev`, so the stamp has to match the car

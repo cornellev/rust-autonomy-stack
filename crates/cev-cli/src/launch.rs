@@ -402,6 +402,9 @@ stop() {
   local i=0
   local alive
   while [[ "$i" -lt "${#pids[@]}" ]]; do
+    # set -m makes each node its own process group. Signaling the pid alone
+    # misses grandchildren; the group id is the node's pid.
+    kill -INT -- "-${pids[$i]}" 2>/dev/null || true
     kill -INT "${pids[$i]}" 2>/dev/null || true
     i=$((i + 1))
   done
@@ -426,6 +429,7 @@ stop() {
   done
   i=0
   while [[ "$i" -lt "${#pids[@]}" ]]; do
+    kill -KILL -- "-${pids[$i]}" 2>/dev/null || true
     kill -KILL "${pids[$i]}" 2>/dev/null || true
     i=$((i + 1))
   done
@@ -435,6 +439,8 @@ stop() {
 trap 'stop 130' INT
 trap 'stop 143' TERM
 trap 'stop 129' HUP
+echo $$ > "$BIN/launch.pid"
+trap 'rm -f "$BIN/launch.pid"' EXIT
 
 "#,
     );
@@ -480,10 +486,66 @@ fn start_block(node: &LaunchNode) -> String {
     block
 }
 
+/// Stop the stack recorded in `<install_dir>/bin/launch.pid`.
+///
+/// Prints `launch: not running` and exits 0 when nothing is alive. Otherwise
+/// SIGINT the supervisor and its children, then SIGKILL after the same grace
+/// `stop` uses.
+pub fn render_kill_script(install_dir: &str) -> String {
+    let pidfile = shell_single_quote(&format!("{install_dir}/bin/launch.pid"));
+    let mut script = format!("pidfile={pidfile}\n");
+    script.push_str(
+        r#"if [[ ! -f "$pidfile" ]]; then
+  echo "launch: not running" >&2
+  exit 0
+fi
+pid=$(cat "$pidfile")
+if ! kill -0 "$pid" 2>/dev/null; then
+  echo "launch: not running" >&2
+  exit 0
+fi
+kids=$(pgrep -P "$pid" 2>/dev/null || true)
+signal_tree() {
+  local sig=$1
+  local p pgid
+  for p in $pid $kids; do
+    pgid=$(ps -o pgid= -p "$p" 2>/dev/null | tr -d ' ')
+    if [[ -n "$pgid" ]]; then
+      kill "$sig" -- "-$pgid" 2>/dev/null || true
+    fi
+    kill "$sig" "$p" 2>/dev/null || true
+  done
+}
+signal_tree -INT
+deadline=$((SECONDS + "#,
+    );
+    script.push_str(&GRACE.as_secs().to_string());
+    script.push_str(
+        r#"))
+while [[ "$SECONDS" -lt "$deadline" ]]; do
+  alive=0
+  for p in $pid $kids; do
+    if kill -0 "$p" 2>/dev/null; then
+      alive=1
+    fi
+  done
+  if [[ "$alive" -eq 0 ]]; then
+    exit 0
+  fi
+  sleep 0.1
+done
+signal_tree -KILL
+exit 0
+"#,
+    );
+    script
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use std::path::PathBuf;
     use std::process::Stdio;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -693,6 +755,135 @@ optional = true
         assert!(!alive, "sleeper {pid} still running\n{}", session.output());
     }
 
+    #[test]
+    fn interrupt_and_hangup_stop_the_stack() {
+        for sig in ["-INT", "-HUP"] {
+            let mut running = Running::start(&format!("sig{}", sig.trim_start_matches('-')));
+            let launch_pid =
+                std::fs::read_to_string(running.tmp.path.join("bin/launch.pid")).unwrap();
+            let signaled = Command::new("kill")
+                .args([sig, launch_pid.trim()])
+                .status()
+                .unwrap();
+            assert!(signaled.success(), "kill {sig}");
+            let _ = running.session.wait_timeout(Duration::from_secs(3));
+            let sleeper = std::fs::read_to_string(&running.sleeper_pid).unwrap();
+            assert!(
+                !process_alive(&sleeper),
+                "sleeper {sleeper} still running after {sig}\n{}",
+                running.session.output()
+            );
+        }
+    }
+
+    #[test]
+    fn kill_script_stops_a_running_stack() {
+        let mut running = Running::start("kill");
+        let body = render_kill_script(&running.tmp.path.display().to_string());
+        let output = Command::new("bash").arg("-c").arg(&body).output().unwrap();
+        assert!(
+            output.status.success(),
+            "kill script: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let _ = running.session.wait_timeout(Duration::from_secs(3));
+        let sleeper = std::fs::read_to_string(&running.sleeper_pid).unwrap();
+        assert!(
+            !process_alive(&sleeper),
+            "sleeper {sleeper} still running\n{}\n{}",
+            running.session.output(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let again = Command::new("bash").arg("-c").arg(&body).output().unwrap();
+        let stderr = String::from_utf8_lossy(&again.stderr);
+        assert!(again.status.success(), "{stderr}");
+        assert!(stderr.contains("not running"), "{stderr}");
+    }
+
+    fn process_alive(pid: &str) -> bool {
+        Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    }
+
+    struct Running {
+        tmp: Scratch,
+        session: Session,
+        sleeper_pid: PathBuf,
+    }
+
+    impl Running {
+        fn start(label: &str) -> Self {
+            let tmp = Scratch::new(label);
+            let bin = tmp.path.join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::create_dir_all(tmp.path.join("config")).unwrap();
+            let sleeper_pid = tmp.path.join("sleeper.pid");
+            write_exe(
+                &bin.join("sleeper"),
+                "#!/bin/bash\necho $$ > \"$1\"\nexec sleep 30\n",
+            );
+            let nodes = vec![LaunchNode {
+                name: "sleeper".to_string(),
+                bin: "sleeper".to_string(),
+                args: vec![sleeper_pid.display().to_string()],
+                env: BTreeMap::new(),
+            }];
+            let script = render_launch_script(
+                "merceves",
+                &tmp.path.display().to_string(),
+                &BTreeMap::new(),
+                &nodes,
+            );
+            let launch = write_script(&bin.join("launch"), &script);
+            let session = Session::spawn(&launch, &flock_stub(&tmp.path.join("stub")));
+            let mut running = Self {
+                tmp,
+                session,
+                sleeper_pid,
+            };
+            running.wait_until_up();
+            running
+        }
+
+        fn wait_until_up(&mut self) {
+            let launch_pid = self.tmp.path.join("bin/launch.pid");
+            let start = Instant::now();
+            loop {
+                if self.session.poll().is_some() {
+                    panic!("script exited early\n{}", self.session.output());
+                }
+                let sleeper = std::fs::read_to_string(&self.sleeper_pid).unwrap_or_default();
+                let launch = std::fs::read_to_string(&launch_pid).unwrap_or_default();
+                if !sleeper.trim().is_empty() && !launch.trim().is_empty() {
+                    return;
+                }
+                if start.elapsed() > Duration::from_secs(3) {
+                    self.session.kill_group();
+                    panic!("stack did not come up\n{}", self.session.output());
+                }
+                std::thread::sleep(POLL);
+            }
+        }
+    }
+
+    impl Drop for Running {
+        fn drop(&mut self) {
+            if let Ok(pid) = std::fs::read_to_string(&self.sleeper_pid) {
+                let _ = Command::new("kill")
+                    .args(["-KILL", pid.trim()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+        }
+    }
+
     fn bash_syntax(script: &str) {
         let tmp = Scratch::new("syntax");
         let path = write_script(&tmp.path.join("launch"), script);
@@ -773,6 +964,7 @@ optional = true
     struct Session {
         child: Child,
         pgid: u32,
+        exited: Option<std::process::ExitStatus>,
         stdout: Option<std::process::ChildStdout>,
         stderr: Option<std::process::ChildStderr>,
     }
@@ -794,13 +986,23 @@ optional = true
                 stderr: child.stderr.take(),
                 child,
                 pgid,
+                exited: None,
             }
+        }
+
+        fn poll(&mut self) -> Option<std::process::ExitStatus> {
+            if self.exited.is_none() {
+                if let Some(status) = self.child.try_wait().unwrap() {
+                    self.exited = Some(status);
+                }
+            }
+            self.exited
         }
 
         fn wait_timeout(&mut self, limit: Duration) -> std::process::ExitStatus {
             let start = Instant::now();
             loop {
-                if let Some(status) = self.child.try_wait().unwrap() {
+                if let Some(status) = self.poll() {
                     return status;
                 }
                 if start.elapsed() > limit {
