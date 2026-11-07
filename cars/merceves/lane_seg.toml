@@ -1,0 +1,20 @@
+# clrnet-lane on MerCEVes. Full key list: rust-laneseg/config/lane_seg.toml.
+
+[model]
+# Not shipped by `cargo deploy`; copy once (see the rust-laneseg README).
+path = "/opt/cev/models/clrnet_r18.onnx"
+execution_provider = "tensorrt"
+trt_fp16 = true
+# First start builds the TensorRT engine (several minutes), later starts load it from here.
+trt_cache_dir = "/opt/cev/trt_cache"
+cut_top_fraction = 0.4576   # tune to the ZED mount's horizon
+
+[camera]
+# Placeholder ZED 2 VGA values. Copy this unit's [LEFT_CAM_VGA] from
+# /usr/local/zed/settings/SN<serial>.conf, and measure the mount height and pitch.
+fx = 264.0
+fy = 264.0
+cx = 336.0
+cy = 188.0
+height_m = 1.0
+pitch_deg = 0.0

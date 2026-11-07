@@ -1,0 +1,6 @@
+# clrnet-lane in the desktop sim. Full key list: rust-laneseg/config/lane_seg.toml.
+
+[model]
+# Relative to this file: the model committed in the rust-laneseg checkout.
+path = "../../nodes/lane-seg/models/clrnet_r18.onnx"
+execution_provider = "cpu"

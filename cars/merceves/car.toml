@@ -59,3 +59,15 @@ enabled = false
 name = "deadreckoning"
 package = "cev_odometry"
 optional = true
+
+# CLRNet lanes from the ZED -> cev/perception/lane_costmap. Reads lane_seg.toml beside this file.
+# Off until the car has the GPU runtime and model (rust-laneseg README, "On the car"), and
+# zed-reader runs: launch stops every node when one exits, and this one exits without them.
+[[nodes]]
+name = "lane-seg"
+package = "clrnet-lane"
+enabled = false
+
+[nodes.env]
+ORT_DYLIB_PATH = "/opt/cev/ort-runtime/onnxruntime/capi/libonnxruntime.so.1.24.0"
+LD_LIBRARY_PATH = "/opt/cev/ort-runtime/onnxruntime/capi:/opt/cev/ort-runtime/tensorrt_libs:/opt/cev/ort-runtime/nvidia/cu13/lib:/opt/cev/ort-runtime/nvidia/cudnn/lib"

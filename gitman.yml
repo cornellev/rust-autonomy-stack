@@ -65,6 +65,20 @@ sources:
       -
     patches:
       -
+  - repo: https://github.com/cornellev/rust-laneseg
+    name: rust-laneseg
+    rev: main
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/lane-seg
+    scripts:
+      -
+    patches:
+      -
   - repo: https://github.com/cornellev/rust-autonomy-sensors
     name: rust-autonomy-sensors
     rev: main
@@ -134,6 +148,7 @@ groups:
       - rust-inekf
       - holdover-ekf
       - rust-autonomy-sensors
+      - rust-laneseg
       - virtual-rgbd-sensor
       - costmap-planner-rust
       - pure_pursuit
@@ -240,6 +255,20 @@ sources_locked:
         target: nodes/imu-gps
       - source: auto/gamepad
         target: nodes/gamepad
+    scripts:
+      -
+    patches:
+      -
+  - repo: https://github.com/cornellev/rust-laneseg
+    name: rust-laneseg
+    rev: 65de3653b910e02b2b0e7ff025a567119ea49439
+    type: git
+    params:
+    sparse_paths:
+      -
+    links:
+      - source: ''
+        target: nodes/lane-seg
     scripts:
       -
     patches:

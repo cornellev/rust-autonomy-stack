@@ -28,3 +28,10 @@ name = "deadreckoning"
 package = "cev_odometry"
 optional = true
 args = ["--compare"]
+
+# CLRNet lanes on CPU. Off by default: it needs a libonnxruntime.so in ORT_DYLIB_PATH on this
+# machine (e.g. from `pip install onnxruntime`, in onnxruntime/capi/), and a ZED publisher.
+[[nodes]]
+name = "lane-seg"
+package = "clrnet-lane"
+enabled = false

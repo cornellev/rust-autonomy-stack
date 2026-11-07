@@ -86,6 +86,7 @@ the candidates are a `hardware.toml` beside `car.toml` with a schema in
 | `holdover-ekf` | temporary EKF | yes, `nodes/holdover-ekf` |
 | `virtual-rgbd-sensor` | perception | yes, `nodes/perception` |
 | `rust-autonomy-sensors` | ZED reader | yes, `nodes/zed-reader` (`crates/zed-reader`) |
+| `rust-laneseg` | lane detection (CLRNet on the ZED image) | yes, `nodes/lane-seg` (package `clrnet-lane`); `enabled = false` on every car until the car has its GPU runtime and model, see that repo's README |
 | `costmap-planner-rust` | planning | yes, `nodes/planning` (`costmap_planner_rs` on `zenoh-impl`) |
 | `pure_pursuit` | control | yes, `nodes/control` |
 | `urban-concept` | teleop, imu-gps, gamepad | yes, `nodes/teleop` (`auto/teleop`), `nodes/imu-gps` (`auto/imu-gps-node`), and `nodes/gamepad` (`auto/gamepad`) on `erica/merceves` |
